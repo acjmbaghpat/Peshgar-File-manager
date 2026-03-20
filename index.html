@@ -460,7 +460,7 @@ tr:hover         { background-color: #f0fdfa; }
 </head>
 <body>
 
-<div class="app-header">🏛️ Officer File Manager</div>
+<div class="app-header">🏛️ Peshgaar File Manager</div>
 
 <div class="container">
 
@@ -581,7 +581,7 @@ tr:hover         { background-color: #f0fdfa; }
 
 <script>
 // ===================== IndexedDB Setup =====================
-const DB_NAME        = 'OfficerFileManagerDB';
+const DB_NAME        = 'PeshPeshgaarFileManagerDB';
 const DB_VERSION     = 1;
 const STORE_VERSIONS = 'versions';
 const STORE_METADATA = 'metadata';
@@ -644,7 +644,7 @@ async function idbGetAllMetaKeys() {
 }
 
 // ===================== State =====================
-// Fields: received FIRST, sent SECOND (officer workflow)
+// Fields: received FIRST, sent SECOND (peshgaar workflow)
 const DATA_KEYS = ["srno","caseno","partyname","section","ps","received","receiveddate","sent","sentdate","nextdate","remark"];
 
 let currentData     = [];
@@ -884,7 +884,7 @@ function getFilteredData() {
   let data = currentData;
 
   if (activeFilter === 'precvd') {
-    // Pending Received: not yet received by officer
+    // Pending Received: not yet received by peshgaar
     data = data.filter(r => r.received !== "Received");
   } else if (activeFilter === 'psent') {
     // Pending Sent: received but not yet sent back
@@ -1230,8 +1230,8 @@ function downloadExcel() {
   }));
   const ws = XLSX.utils.json_to_sheet(exportData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Officer Data");
-  XLSX.writeFile(wb, "Officer_" + workDate.value + "_v" + uploadVersion + ".xlsx");
+  XLSX.utils.book_append_sheet(wb, ws, "Peshgaar Data");
+  XLSX.writeFile(wb, "Peshgaar_" + workDate.value + "_v" + uploadVersion + ".xlsx");
 }
 
 // ===================== Delete Old Data =====================
@@ -1287,7 +1287,7 @@ async function exportBackup() {
     const url     = URL.createObjectURL(blob);
     const a       = document.createElement("a");
     a.href        = url;
-    a.download    = "OfficerFileManager_Backup_" + todayISO() + ".json";
+    a.download    = "PeshgaarFileManager_Backup_" + todayISO() + ".json";
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
     statusEl.textContent = "✅ Backup export ho gaya!";
