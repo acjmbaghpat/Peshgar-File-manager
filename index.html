@@ -274,13 +274,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
         <div id="syncDot" class="off"></div>
         <span id="syncTxt">Offline</span>
       </div>
-      <div class="hdr-btn" onclick="doLogout()" title="Logout">🚪</div>
+      <input type="date" id="manualDateInput"
+        style="padding:4px 6px;border:1.5px solid rgba(255,255,255,.3);border-radius:8px;font-size:11px;outline:none;color:#fff;background:rgba(255,255,255,.15);max-width:130px"
+        onchange="addManualDate(this.value)">
     </div>
   </div>
   <div id="tab-bar">
     <button class="tab-btn on" onclick="switchTab('files')" data-tab="files">📁 Files</button>
     <button class="tab-btn" onclick="switchTab('import')" data-tab="import">📤 Import</button>
-    <button class="tab-btn" onclick="switchTab('settings')" data-tab="settings">⚙️ Settings</button>
   </div>
 </div>
 
@@ -288,23 +289,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
 <div class="tab-c on" id="tab-files">
   <div class="cnt">
 
-    <!-- Date selector -->
-    <div class="sec" style="padding:12px 14px;margin-bottom:8px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:13px;font-weight:700;color:var(--navy)">📅 Date Select Karo</div>
-        <div style="font-size:12px;color:var(--mu);font-weight:500" id="selectedDateLabel">Koi date nahi chuni</div>
-      </div>
+    <!-- Date Pills -->
+    <div style="padding:8px 14px 4px">
       <div class="date-pill-row" id="datePillRow">
-        <div style="font-size:12px;color:var(--mu);padding:6px 0">Koi data nahi — Import tab se upload karo ya Firebase sync karo</div>
+        <div style="font-size:12px;color:var(--mu);padding:4px 0">Header mein date select karo ya Import se upload karo</div>
       </div>
     </div>
 
     <!-- Stats -->
     <div class="stats-grid">
       <div class="stat-card">
-        <span class="stat-icon">📁</span>
+        <span class="stat-icon">📤</span>
         <span class="stat-val" id="st-total">0</span>
-        <span class="stat-lbl">Total</span>
+        <span class="stat-lbl">CM Sent</span>
       </div>
       <div class="stat-card recv-col">
         <span class="stat-icon">📥</span>
@@ -323,21 +320,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
       </div>
     </div>
 
-    <!-- Mismatch Banner -->
-    <div id="mismatchBanner" onclick="openMismatchModal()">
-      <div class="mb-title">⚠️ Mismatch Alert — Sent par Received nahi!</div>
-      <div class="mb-sub">Court Manager se sent hui lekin Peshgar ne receive nahi ki</div>
-      <div class="mb-count" id="mismatchCount">0 files</div>
-    </div>
-
-    <!-- Steno Banner -->
-    <div id="stenoBanner" onclick="openStenoModal()">
-      <div class="mb-title" style="color:#fff">🖊️ Steno ke paas pending files</div>
-      <div class="mb-sub" style="color:rgba(255,255,255,.8)">Office se bahar nahi gayi — Steno/Judge ke paas</div>
-      <div class="mb-count" id="stenoCount">0 files</div>
-    </div>
-
-    <!-- Search -->
+    <!-- Search + Filter Chips -->
     <div class="search-wrap">
       <div class="search-inner">
         <div class="search-box">
@@ -351,8 +334,22 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
           <div class="chip" onclick="setFilter('rcv')" id="fc-rcv-chip">Received <span class="chip-cnt" id="fc-rcv">0</span></div>
           <div class="chip" onclick="setFilter('miss')" id="fc-miss-chip">Mismatch <span class="chip-cnt" id="fc-miss">0</span></div>
           <div class="chip" onclick="setFilter('steno')" id="fc-steno-chip">Steno <span class="chip-cnt" id="fc-steno">0</span></div>
+          <div class="chip" onclick="setFilter('judge')" id="fc-judge-chip">Judge <span class="chip-cnt" id="fc-judge">0</span></div>
         </div>
       </div>
+    </div>
+
+    <!-- Banners — chips ke neeche, table ke upar -->
+    <div id="mismatchBanner" onclick="openMismatchModal()">
+      <div class="mb-title">⚠️ Mismatch Alert — Sent par Received nahi!</div>
+      <div class="mb-sub">Court Manager se sent hui lekin Peshgar ne receive nahi ki</div>
+      <div class="mb-count" id="mismatchCount">0 files</div>
+    </div>
+
+    <div id="stenoBanner" onclick="openStenoModal()">
+      <div class="mb-title" style="color:#fff">🖊️ Steno/Judge ke paas pending files</div>
+      <div class="mb-sub" style="color:rgba(255,255,255,.8)">Office se bahar nahi gayi</div>
+      <div class="mb-count" id="stenoCount">0 files</div>
     </div>
 
     <!-- Table -->
@@ -436,43 +433,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
   </div>
 </div>
 
-<!-- ════════════ SETTINGS TAB ════════════ -->
-<div class="tab-c" id="tab-settings">
-  <div class="cnt">
-    <div class="sec">
-      <div class="sec-hd">
-        <div class="ico blue">⚙️</div>
-        <div><div class="lbl">App Settings</div><div class="sub">Password aur app preferences</div></div>
-      </div>
-      <div class="field"><label>New Password</label><input type="password" id="newPwd" placeholder="Naya password"></div>
-      <div class="field"><label>Confirm Password</label><input type="password" id="confPwd" placeholder="Dobara likho"></div>
-      <button class="btn primary" onclick="changePwd()">🔑 Password Badlo</button>
-      <div id="pwdMsg" class="smsg"></div>
-    </div>
 
-    <div class="sec">
-      <div class="sec-hd">
-        <div class="ico red">🗑️</div>
-        <div><div class="lbl">Data Manage</div><div class="sub">Purana data saaf karo</div></div>
-      </div>
-      <button class="btn danger" onclick="clearAllData()">🗑️ Sab Data Delete Karo</button>
-    </div>
-
-    <div class="sec">
-      <div class="sec-hd">
-        <div class="ico amber">ℹ️</div>
-        <div><div class="lbl">App Info</div></div>
-      </div>
-      <div style="font-size:13px;color:var(--mu)">
-        <div style="margin-bottom:6px">📋 <strong>Peshgar Manager v1.0</strong></div>
-        <div style="margin-bottom:4px">Court Manager ke data pe kaam karne ke liye</div>
-        <div>Columns: Sr.No, Case No, Party Name, U/S, PS, Sent Status, Remark</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ════ FABs ════ -->
+<!-- ════════════ FABs ════════════ -->
 <div class="fab-row" id="fabRow" style="display:none">
   <button class="fab fab-rcv" onclick="startScan('receive')">📥 Receive (QR)</button>
   <button class="fab fab-send" onclick="startScan('send')">📤 Send (QR)</button>
@@ -505,33 +467,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
   <div class="msh" style="max-width:440px">
     <div class="mt" id="cd-title">📁 Case Detail</div>
     <div class="msub" id="cd-party">—</div>
-
     <div class="cd-section" id="cd-info"></div>
-
-    <!-- Location select (only if not sent to office) -->
-    <div id="cd-loc-wrap" style="display:none">
-      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">📌 File kahan hai?</div>
-      <button class="loc-btn judge" onclick="setFileLocation(_cdCN,'judge')">
-        <span class="li">⚖️</span>
-        <div><div class="lt">Judge ke paas</div><div class="ls">Court mein gyi hai — sun'vaai pe</div></div>
-      </button>
-      <button class="loc-btn steno" onclick="setFileLocation(_cdCN,'steno')">
-        <span class="li">🖊️</span>
-        <div><div class="lt">Steno ke paas</div><div class="ls">Steno ne rakha hai — pending</div></div>
-      </button>
-      <button class="loc-btn" style="border-color:var(--bdr)" onclick="setFileLocation(_cdCN,'office')">
-        <span class="li">🗂️</span>
-        <div><div class="lt">Office mein</div><div class="ls">Wapis aa gayi — almari mein</div></div>
-      </button>
-    </div>
-
     <div style="margin-top:4px">
       <div class="field">
         <label>Remark</label>
         <input type="text" id="cd-remark-inp" placeholder="Koi note..." oninput="updateRemarkLive()">
       </div>
     </div>
-
     <button class="btn neutral" onclick="closeCaseDetail()" style="margin-top:8px">✕ Band Karo</button>
   </div>
 </div>
@@ -611,6 +553,19 @@ function loadData(){
 }
 
 // ══ DATE MANAGEMENT ══
+function addManualDate(val){
+  if(!val)return;
+  // Already exists?
+  const exists=pData.dates.find(d=>d.date===val);
+  if(!exists){
+    pData.dates.push({date:val,rows:[]});
+    pData.dates.sort((a,b)=>b.date.localeCompare(a.date));
+    saveData();
+  }
+  selectDate(val);
+  renderDatePills();
+}
+
 function renderDatePills(){
   const row=document.getElementById('datePillRow');
   if(!pData.dates.length){
@@ -627,8 +582,8 @@ function fmtDateLabel(iso){
 function selectDate(date){
   activeDate=date;
   renderDatePills();
-  document.getElementById('hdr-date-label').textContent=fmtDateLabel(date);
-  document.getElementById('selectedDateLabel').textContent=fmtDateLabel(date);
+  const hdl=document.getElementById('hdr-date-label'); if(hdl)hdl.textContent=fmtDateLabel(date);
+  const sdl=document.getElementById('selectedDateLabel'); if(sdl)sdl.textContent=fmtDateLabel(date);
   drawTable();
   updateDash();
 }
@@ -720,6 +675,18 @@ function findCol(hdr,names){
   return -1;
 }
 
+// ══ SPEAK ══
+function pgSpeak(msg){
+  try{
+    if(typeof Android!=='undefined'&&Android.speak)return Android.speak(msg);
+    if(!window.speechSynthesis)return;
+    window.speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(msg);
+    u.lang='en-IN';u.rate=0.95;u.volume=1;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+
 // ══ DASHBOARD ══
 function updateDash(){
   if(!activeDate){
@@ -727,32 +694,41 @@ function updateDash(){
     return;
   }
   const rows=getDateRows(activeDate);
-  const total=rows.length;
+  // Total = Court Manager se sent files (jo humein milni chahiye)
+  const total=rows.filter(r=>r.sentStatus==='Sent').length;
   const rcv=rows.filter(r=>r.received==='Received').length;
   const sent=rows.filter(r=>r.sentToOffice==='Sent').length;
+  // Mismatch: Court Manager ne sent ki par peshgar ne receive nahi ki — define FIRST
+  const miss=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  // Steno/Judge: received but not sentToOffice and has location
+  const steno=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno');
+  const judge=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge');
+  const stenoJudge=[...steno,...judge];
+
   document.getElementById('st-total').textContent=total;
   document.getElementById('st-rcv').textContent=rcv;
   document.getElementById('st-send').textContent=sent;
   document.getElementById('st-miss').textContent=miss.length;
 
-  // Mismatch: sentStatus='Sent' but received='' (office ne bheja par peshgar ne receive nahi kiya)
-  const miss=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  // Mismatch Banner
   document.getElementById('mismatchCount').textContent=miss.length+' files';
   const mb=document.getElementById('mismatchBanner');
   mb.classList.toggle('show',miss.length>0);
 
-  // Steno: received but not sentToOffice
-  const steno=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&(r.location==='steno'||r.location==='judge'));
-  document.getElementById('stenoCount').textContent=steno.length+' files';
-  document.getElementById('stenoBanner').classList.toggle('show',steno.length>0);
+  // Steno Banner
+  document.getElementById('stenoCount').textContent=stenoJudge.length+' files';
+  document.getElementById('stenoBanner').classList.toggle('show',stenoJudge.length>0);
 
   // Filter chips
-  const pending=rows.filter(r=>r.received!=='Received');
-  document.getElementById('fc-all').textContent=total;
-  document.getElementById('fc-pending').textContent=pending.length;
-  document.getElementById('fc-rcv').textContent=rcv;
-  document.getElementById('fc-miss').textContent=miss.length;
-  document.getElementById('fc-steno').textContent=steno.length;
+  const pending=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  const elAll=document.getElementById('fc-all'); if(elAll)elAll.textContent=total;
+  const elPend=document.getElementById('fc-pending'); if(elPend)elPend.textContent=pending.length;
+  const elRcv=document.getElementById('fc-rcv'); if(elRcv)elRcv.textContent=rcv;
+  const elMiss=document.getElementById('fc-miss'); if(elMiss)elMiss.textContent=miss.length;
+  const elSteno=document.getElementById('fc-steno'); if(elSteno)elSteno.textContent=steno.length;
+  const elJudge=document.getElementById('fc-judge'); if(elJudge)elJudge.textContent=judge.length;
+  // selectedDateLabel may or may not exist
+  const sdl=document.getElementById('selectedDateLabel'); if(sdl)sdl.textContent=activeDate?fmtDateLabel(activeDate):'';
 }
 
 // ══ TABLE ══
@@ -763,7 +739,8 @@ function getFilteredRows(){
   if(activeFilter==='pending')rows=rows.filter(r=>r.received!=='Received');
   else if(activeFilter==='rcv')rows=rows.filter(r=>r.received==='Received');
   else if(activeFilter==='miss')rows=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
-  else if(activeFilter==='steno')rows=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&(r.location==='steno'||r.location==='judge'));
+  else if(activeFilter==='steno')rows=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno');
+  else if(activeFilter==='judge')rows=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge');
   // Search
   if(searchQ){
     const q=searchQ.toLowerCase();
@@ -806,11 +783,11 @@ function drawTable(){
 function setFilter(f){
   activeFilter=f;
   document.querySelectorAll('.filter-chips .chip').forEach(c=>c.className='chip');
-  const map={all:'a-all',pending:'a-pending',rcv:'a-rcv',miss:'a-miss',steno:'a-steno'};
-  const chips=document.querySelectorAll('.filter-chips .chip');
-  const fArr=['all','pending','rcv','miss','steno'];
+  const map={all:'a-all',pending:'a-pending',rcv:'a-rcv',miss:'a-miss',steno:'a-steno',judge:'a-judge'};
+  const fArr=['all','pending','rcv','miss','steno','judge'];
   const fi=fArr.indexOf(f);
-  if(fi!==-1&&chips[fi])chips[fi].className='chip '+map[f];
+  const chips=document.querySelectorAll('.filter-chips .chip');
+  if(fi!==-1&&chips[fi])chips[fi].className='chip '+(map[f]||'');
   drawTable();
 }
 function onSearch(){
@@ -1021,6 +998,7 @@ function handleScanResult(dec){
       drawTable();updateDash();
       showSC('✅ RECEIVED — '+actualCN,'#16a34a');
       showToast('✅ Received: '+actualCN);
+      pgSpeak('Received');
       if(navigator.vibrate)navigator.vibrate(55);
       if(!contMode){setTimeout(closeScan,700);}
     }
@@ -1039,6 +1017,7 @@ function handleScanResult(dec){
       drawTable();updateDash();
       showSC('✅ SENT TO OFFICE — '+actualCN,'#1a56db');
       showToast('✅ Sent to office: '+actualCN);
+      pgSpeak('Sent to office');
       if(navigator.vibrate)navigator.vibrate(55);
       if(!contMode){setTimeout(closeScan,700);}
     }
