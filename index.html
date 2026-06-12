@@ -317,13 +317,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
     </div>
 
     <!-- Search + Filter Chips -->
-    <div style="padding:4px 14px 2px">
-      <div class="date-pill-row" id="datePillRow">
-        <div style="font-size:12px;color:var(--mu);padding:4px 0">📅 Header se date chunein</div>
-      </div>
-    </div>
-
-    <!-- Search + Filter Chips -->
     <div class="search-wrap">
       <div class="search-inner">
         <div class="search-box">
@@ -591,7 +584,6 @@ function loadData(){
 // ══ DATE MANAGEMENT ══
 function addManualDate(val){
   if(!val)return;
-  // Already exists?
   const exists=pData.dates.find(d=>d.date===val);
   if(!exists){
     pData.dates.push({date:val,rows:[]});
@@ -599,17 +591,14 @@ function addManualDate(val){
     saveData();
   }
   selectDate(val);
-  renderDatePills();
 }
 
 function renderDatePills(){
-  const row=document.getElementById('datePillRow');
-  if(!pData.dates.length){
-    row.innerHTML='<div style="font-size:12px;color:var(--mu);padding:6px 0">Koi data nahi — Import karo</div>';
-    return;
-  }
-  row.innerHTML=pData.dates.map(d=>`<div class="date-pill${d.date===activeDate?' on':''}" onclick="selectDate('${d.date}')">${fmtDateLabel(d.date)}</div>`).join('');
+  // Pills removed — just update header date label
+  const hdl=document.getElementById('hdr-date-label');
+  if(hdl&&activeDate)hdl.textContent=fmtDateLabel(activeDate);
 }
+function fmtD(iso){if(!iso)return'—';const[y,m,d]=iso.split('-');return`${d}-${m}-${y.slice(2)}`;}
 function fmtDateLabel(iso){
   if(!iso)return'—';
   const [y,m,d]=iso.split('-');
@@ -1305,8 +1294,13 @@ function mergeFbData(date,fbRows){
 
   if(changed){
     setDateRows(date,localRows);
-    renderDatePills();
-    if(date===activeDate){drawTable();updateDash();}
+    // Auto-select latest date if none selected
+    if(!activeDate){
+      const allDates=(pData.dates||[]).map(d=>d.date).sort().reverse();
+      if(allDates.length)selectDate(allDates[0]);
+    } else if(date===activeDate){
+      drawTable();updateDash();
+    }
     const newSentCount=localRows.filter(r=>r.sentStatus==='Sent').length;
     showToast('🔄 Court Manager se update: '+fmtDateLabel(date)+' ('+newSentCount+' sent)');
   }
@@ -1325,9 +1319,14 @@ async function fbPullData(){
       if(!d||!d.data||!Array.isArray(d.data))return;
       mergeFbData(date,d.data);
     });
+    // Auto-select latest date after pull
+    if(!activeDate&&pData.dates.length){
+      const latest=pData.dates.map(d=>d.date).sort().reverse()[0];
+      selectDate(latest);
+    }
     setSyncDot('ok');
-    fbMsg('✅ Sync complete!','s-ok');
-    showToast('✅ Firebase sync ho gaya!');
+    fbMsg('✅ Sync complete! '+pData.dates.length+' dates','s-ok');
+    showToast('✅ Firebase sync ho gaya! '+pData.dates.length+' dates mili');
   }catch(e){setSyncDot('err');fbMsg('❌ Pull fail: '+e.message,'s-err');}
 }
 function tryAutoConnectFB(){
