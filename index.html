@@ -598,7 +598,6 @@ function renderDatePills(){
   const hdl=document.getElementById('hdr-date-label');
   if(hdl&&activeDate)hdl.textContent=fmtDateLabel(activeDate);
 }
-function fmtD(iso){if(!iso)return'—';const[y,m,d]=iso.split('-');return`${d}-${m}-${y.slice(2)}`;}
 function fmtDateLabel(iso){
   if(!iso)return'—';
   const [y,m,d]=iso.split('-');
@@ -830,10 +829,12 @@ function setFilter(f){
   if(fi!==-1&&chips[fi])chips[fi].className='chip '+(map[f]||'');
   drawTable();
 }
+let _searchDeb=null;
 function onSearch(){
   searchQ=document.getElementById('searchBox').value.trim();
   document.getElementById('searchClear').style.display=searchQ?'':'none';
-  drawTable();
+  clearTimeout(_searchDeb);
+  _searchDeb=setTimeout(()=>drawTable(),150);
 }
 function clearSearch(){
   document.getElementById('searchBox').value='';
@@ -1160,23 +1161,6 @@ function openMismatchModal(){
 function closeMismatchModal(){document.getElementById('mismatchModal').classList.remove('on');}
 
 // ══ STENO MODAL ══
-function openStenoModal(){
-  if(!activeDate)return;
-  const rows=getDateRows(activeDate);
-  const steno=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&(r.location==='steno'||r.location==='judge'));
-  const list=document.getElementById('stenoList');
-  if(!steno.length){list.innerHTML='<div style="text-align:center;padding:20px;color:var(--green);font-weight:700">✅ Koi pending nahi!</div>';return;}
-  list.innerHTML=steno.map(r=>`
-    <div style="background:#fff;border:1.5px solid ${r.location==='steno'?'#7c3aed':'#0369a1'};border-radius:10px;padding:11px 13px;margin-bottom:7px;cursor:pointer" onclick="openCaseDetail('${esc(r.caseno).replace(/'/g,"\\'")}');closeStenoModal()">
-      <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
-      <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}</div>
-      <div style="margin-top:5px">${r.location==='steno'?'<span class="badge b-steno">🖊️ Steno</span>':'<span class="badge b-judge">⚖️ Judge</span>'}</div>
-    </div>
-  `).join('');
-  document.getElementById('stenoModal').classList.add('on');
-}
-function closeStenoModal(){document.getElementById('stenoModal').classList.remove('on');}
-
 // ══ EXPORT EXCEL ══
 function exportExcel(){
   if(!activeDate){showToast('⚠️ Date select karo','w');return;}
