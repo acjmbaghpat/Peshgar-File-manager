@@ -633,6 +633,7 @@ button:active{transform:scale(.97)}
     <div class="mt">🖊️ Steno/Judge ke paas</div>
     <div class="msub">Ye files office se nahi gayi — steno ya judge ke paas hain</div>
     <div id="stenoModalList"></div>
+    <button class="btn primary" onclick="exportStenoJudge()" style="margin-bottom:8px">📥 Excel Download Karo</button>
     <button class="btn neutral" onclick="closeStenoModal()">✕ Band Karo</button>
   </div>
 </div>
@@ -683,27 +684,96 @@ function doLogin(){
     document.getElementById('loginScreen').style.display='none';
     document.getElementById('app-hdr').style.display='block';
     document.getElementById('fabRow').style.display='flex';
-    loadData();
+    loadData(); // async — loads from IndexedDB
     tryAutoConnectFB();
   } else {
     document.getElementById('lerr').textContent='❌ Galat password';
     setTimeout(()=>document.getElementById('lerr').textContent='',2000);
   }
 }
-function doLogout(){if(!confirm('Logout karo?'))return;location.reload();}
-function changePwd(){
-  const n=document.getElementById('newPwd').value.trim();
-  const c=document.getElementById('confPwd').value.trim();
-  if(!n){showMsg('pwdMsg','⚠️ Password blank nahi ho sakta','s-warn');return;}
-  if(n!==c){showMsg('pwdMsg','❌ Passwords match nahi karte','s-err');return;}
-  localStorage.setItem(APP_PWD_KEY,n);
-  showMsg('pwdMsg','✅ Password badal gaya!','s-ok');
+
+// ══════════════════════════════════════════
+//  DATA STORAGE — IndexedDB (scalable, no quota limit)
+//  pData stays as in-memory working copy (fast sync reads)
+//  IDB is the persistent store. Auto-migrates old localStorage data.
+// ══════════════════════════════════════════
+const IDB_NAME='peshgar_db';
+const IDB_STORE='kv';
+const IDB_DATA_KEY='pm_data';
+let _idb=null;
+
+function openIDB(){
+  return new Promise((res,rej)=>{
+    if(_idb){res(_idb);return;}
+    const req=indexedDB.open(IDB_NAME,1);
+    req.onupgradeneeded=e=>{
+      const db=e.target.result;
+      if(!db.objectStoreNames.contains(IDB_STORE))db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess=e=>{_idb=e.target.result;res(_idb);};
+    req.onerror=e=>rej(e.target.error);
+  });
+}
+function idbGet(key){
+  return new Promise((res,rej)=>{
+    openIDB().then(db=>{
+      const tx=db.transaction(IDB_STORE,'readonly');
+      const r=tx.objectStore(IDB_STORE).get(key);
+      r.onsuccess=()=>res(r.result);
+      r.onerror=e=>rej(e.target.error);
+    }).catch(rej);
+  });
+}
+function idbSet(key,val){
+  return new Promise((res,rej)=>{
+    openIDB().then(db=>{
+      const tx=db.transaction(IDB_STORE,'readwrite');
+      tx.objectStore(IDB_STORE).put(val,key);
+      tx.oncomplete=()=>res(true);     // resolve on commit (durable write)
+      tx.onerror=e=>rej(e.target.error);
+      tx.onabort=e=>rej(e.target.error);
+    }).catch(rej);
+  });
 }
 
-// ══ DATA STORAGE ══
-function saveData(){localStorage.setItem(DATA_KEY,JSON.stringify(pData));}
-function loadData(){
-  try{const d=JSON.parse(localStorage.getItem(DATA_KEY)||'null');if(d&&d.dates)pData=d;}catch(e){}
+// Debounced save — multiple rapid setDateRows() = single IDB write
+let _saveTimer=null;
+function saveData(){
+  clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(()=>{
+    idbSet(IDB_DATA_KEY,pData).catch(e=>{
+      console.error('IDB save fail:',e);
+      showToast('⚠️ Data save fail hua — phone storage check karo','d');
+    });
+  },300);
+}
+
+async function loadData(){
+  try{
+    // 1. Try IndexedDB first
+    let data=await idbGet(IDB_DATA_KEY);
+    // 2. One-time migration: agar IDB khali hai par purana localStorage data hai
+    if(!data||!data.dates){
+      const old=localStorage.getItem(DATA_KEY);
+      if(old){
+        try{
+          const parsed=JSON.parse(old);
+          if(parsed&&parsed.dates){
+            data=parsed;
+            await idbSet(IDB_DATA_KEY,data); // IDB mein copy karo
+            // localStorage saaf karo (quota free karne ke liye)
+            try{localStorage.removeItem(DATA_KEY);}catch(e){}
+            showToast('✅ Data IndexedDB mein migrate ho gaya (ab unlimited storage)');
+          }
+        }catch(e){console.error('Migration parse fail:',e);}
+      }
+    }
+    if(data&&data.dates)pData=data;
+  }catch(e){
+    console.error('loadData IDB fail, localStorage fallback:',e);
+    // Fallback: agar IDB fail ho jaye to localStorage try karo
+    try{const d=JSON.parse(localStorage.getItem(DATA_KEY)||'null');if(d&&d.dates)pData=d;}catch(e2){}
+  }
   renderDatePills();
   if(pData.dates.length){selectDate(pData.dates[pData.dates.length-1].date);}
   updateDash();
@@ -1319,17 +1389,61 @@ function closeMismatchModal(){document.getElementById('mismatchModal').classList
 
 // ══ STENO MODAL ══
 // ══ EXPORT EXCEL ══
+function fmtTime(iso){
+  // sentToOfficeDate may be a date string or full ISO timestamp
+  if(!iso)return'';
+  try{
+    const d=new Date(iso);
+    if(isNaN(d))return iso;
+    // Agar sirf date hai (no time component) to date dikhao
+    if(String(iso).length<=10)return d.toLocaleDateString('en-GB');
+    return d.toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  }catch(e){return iso;}
+}
 function exportExcel(){
   if(!activeDate){showToast('⚠️ Date select karo','w');return;}
   const rows=getDateRows(activeDate);
   if(!rows.length){showToast('⚠️ Koi data nahi','w');return;}
-  const headers=['Sr.No','Case No','Party Name','U/S','PS','Court Sent','Received','Recv Date','Sent to Office','Location','Remark'];
-  const data=rows.map(r=>[r.srno,r.caseno,r.partyname,r.section,r.ps,r.sentStatus,r.received,r.receiveddate,r.sentToOffice,r.location||'office',r.remark]);
+  // Location column HATAYA — uski jagah "Sent to Office Time"
+  const headers=['Sr.No','Case No','Party Name','U/S','PS','Court Sent','Received','Recv Date','Sent to Office','Sent to Office Time','Remark'];
+  const data=rows.map(r=>[r.srno,r.caseno,r.partyname,r.section,r.ps,r.sentStatus,r.received,r.receiveddate,r.sentToOffice,fmtTime(r.sentToOfficeDate),r.remark]);
   const ws=XLSX.utils.aoa_to_sheet([headers,...data]);
-  ws['!cols']=[6,18,28,16,14,10,12,13,14,12,30].map(w=>({wch:w}));
+  ws['!cols']=[6,18,28,16,14,10,12,13,14,20,30].map(w=>({wch:w}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Peshgar Data');
   XLSX.writeFile(wb,'Peshgar_'+activeDate+'.xlsx');
   showToast('✅ Excel download ho gayi!');
+}
+
+// #2 — Steno/Judge pending files (ALL dates) Excel export with location mark
+function exportStenoJudge(){
+  const allFiles=[];
+  (pData.dates||[]).forEach(d=>{
+    (d.rows||[]).forEach(r=>{
+      if(r.received==='Received'&&r.sentToOffice!=='Sent'&&(r.location==='steno'||r.location==='judge')){
+        allFiles.push({...r,_workDate:d.date});
+      }
+    });
+  });
+  if(!allFiles.length){showToast('⚠️ Koi file steno/judge ke paas nahi','w');return;}
+  allFiles.sort((a,b)=>(b._workDate||'').localeCompare(a._workDate||''));
+  const headers=['Sr.No','Case No','Party Name','U/S','PS','Kiske Paas','CM Date','Received Date','Sent to Steno/Judge Date','Remark'];
+  const data=allFiles.map((r,i)=>[
+    i+1,
+    r.caseno,
+    r.partyname||'',
+    r.section||'',
+    r.ps||'',
+    r.location==='steno'?'STENO':'JUDGE',
+    r._workDate||'',
+    r.receiveddate||'',
+    r.locDate||'',
+    r.remark||''
+  ]);
+  const ws=XLSX.utils.aoa_to_sheet([headers,...data]);
+  ws['!cols']=[6,18,28,16,14,12,12,14,22,30].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Steno-Judge Pending');
+  XLSX.writeFile(wb,'StenoJudge_Pending_'+new Date().toISOString().split('T')[0]+'.xlsx');
+  showToast('✅ Steno/Judge list download ho gayi! ('+allFiles.length+' files)');
 }
 
 // ══ BACKUP ══
@@ -1348,7 +1462,13 @@ function importBackup(event){
     try{
       const bk=JSON.parse(e.target.result);
       if(!bk.data||!bk.data.dates){showMsg('backupMsg','❌ Invalid backup file','s-err');return;}
-      pData=bk.data;saveData();loadData();
+      pData=bk.data;
+      saveData(); // IDB pe save (debounced)
+      // UI seedha refresh karo — IDB se dobara read nahi (pData already correct hai)
+      renderDatePills();
+      activeDate=null;
+      if(pData.dates.length)selectDate(pData.dates[pData.dates.length-1].date);
+      updateDash();
       showMsg('backupMsg','✅ Restore ho gaya!','s-ok');showToast('✅ Backup restore ho gaya!');
     }catch(err){showMsg('backupMsg','❌ Error: '+err.message,'s-err');}
   };
@@ -1359,7 +1479,13 @@ function importBackup(event){
 // ══ CLEAR DATA ══
 function clearAllData(){
   if(!confirm('⚠️ Sab data delete ho jayega. Confirm?'))return;
-  pData={dates:[]};saveData();loadData();
+  pData={dates:[]};
+  activeDate=null;
+  saveData();
+  // UI seedha refresh
+  renderDatePills();
+  drawTable();
+  updateDash();
   showToast('🗑️ Sab data delete ho gaya');
 }
 
@@ -1503,13 +1629,27 @@ async function fbPullData(){
   }catch(e){setSyncDot('err');fbMsg('❌ Pull fail: '+e.message,'s-err');}
 }
 function tryAutoConnectFB(){
-  const cfg=JSON.parse(localStorage.getItem(FB_KEY_LS)||'null');
+  let cfg=null;
+  try{cfg=JSON.parse(localStorage.getItem(FB_KEY_LS)||'null');}catch(e){cfg=null;}
   if(!cfg)return;
   document.getElementById('fbKey').value=cfg.apiKey||'';
   document.getElementById('fbAppId').value=cfg.appId||'';
   document.getElementById('fbPid').value=cfg.projectId||'';
   fbInit(cfg);
 }
+
+// Page band/hide hone se pehle pending save turant flush karo (data loss bachao)
+function flushSave(){
+  clearTimeout(_saveTimer);
+  if(_idb){
+    try{
+      const tx=_idb.transaction(IDB_STORE,'readwrite');
+      tx.objectStore(IDB_STORE).put(pData,IDB_DATA_KEY);
+    }catch(e){}
+  }
+}
+window.addEventListener('pagehide',flushSave);
+window.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushSave();});
 
 // Close modals on backdrop click
 document.getElementById('caseDetailModal').addEventListener('click',function(e){if(e.target===this)closeCaseDetail();});
