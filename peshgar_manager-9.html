@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Peshgar Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  /* ── Premium Brand ── */
+  --navy:#0d1b3e;--navy2:#162450;--navy3:#1e3272;
+  --gold:#c9a227;--gold2:#e8be44;
+  /* ── Surfaces (Light) ── */
+  --bg:#eef1f8;--bg2:#e6eaf4;--sur:#ffffff;--sur2:#f7f9fc;--sur3:#eef2fa;
+  --txt:#0a1628;--txt2:#26334d;--mu:#6b7a99;--bdr:#dde5f4;--bdr2:#e8edf7;
+  /* ── Accents ── */
+  --blue:#2563eb;--blueh:#1d4ed8;--blue-soft:#eff4ff;
+  --red:#dc2626;--red-soft:#fef2f2;
+  --green:#16a34a;--green-soft:#f0fdf4;
+  --amber:#d97706;--amber-soft:#fffbeb;
+  --teal:#0891b2;--purple:#7c3aed;--purple-soft:#f3e8ff;
+  /* ── Glass ── */
+  --glass-bg:rgba(255,255,255,.72);--glass-brd:rgba(255,255,255,.5);
+  --glass-blur:blur(20px) saturate(180%);
+  /* ── Radii ── */
+  --r8:10px;--r12:14px;--r16:18px;--r20:22px;
+  /* ── Elevation ── */
+  --sh1:0 1px 2px rgba(13,27,62,.06),0 2px 6px rgba(13,27,62,.04);
+  --sh2:0 2px 8px rgba(13,27,62,.08),0 8px 24px rgba(13,27,62,.06);
+  --sh3:0 8px 32px rgba(13,27,62,.14),0 16px 48px rgba(13,27,62,.08);
+  --sh-blue:0 4px 16px rgba(37,99,235,.28);--sh-navy:0 6px 22px rgba(13,27,62,.32);
+  /* ── Motion ── */
+  --ease:cubic-bezier(.4,0,.2,1);--ease-out:cubic-bezier(.16,1,.3,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);
+}
+/* ═══ DARK MODE ═══ */
+html[data-theme="dark"]{
+  --navy:#1a2547;--navy2:#212e54;--navy3:#2a3a6e;
+  --bg:#0a0f1f;--bg2:#0d1326;--sur:#141b30;--sur2:#1a2238;--sur3:#202940;
+  --txt:#e8edf7;--txt2:#c0cce4;--mu:#8492b0;--bdr:#28324d;--bdr2:#222b42;
+  --blue:#4d82f5;--blueh:#3b73ed;--blue-soft:#1a2547;
+  --red:#f05252;--red-soft:#2a1618;
+  --green:#34d058;--green-soft:#16241a;
+  --amber:#f5a623;--amber-soft:#2a2010;
+  --teal:#22b8d4;--purple:#a06bf0;--purple-soft:#241a3a;
+  --glass-bg:rgba(20,27,48,.72);--glass-brd:rgba(255,255,255,.08);
+  --sh1:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.2);
+  --sh2:0 2px 8px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.25);
+  --sh3:0 8px 32px rgba(0,0,0,.5),0 16px 48px rgba(0,0,0,.3);
+  --sh-blue:0 4px 16px rgba(77,130,245,.35);--sh-navy:0 6px 22px rgba(0,0,0,.5);
+}
+*{transition:background-color .3s var(--ease),border-color .3s var(--ease),color .2s var(--ease)}
+html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:84px;background-image:radial-gradient(circle at 0% 0%,var(--bg2) 0%,transparent 50%),radial-gradient(circle at 100% 100%,var(--bg2) 0%,transparent 50%)}
+button,input,select,textarea{font-family:inherit}
+button{cursor:pointer}
+::selection{background:var(--blue);color:#fff}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--mu)}
+
+/* ══ LOGIN ══ */
+#loginScreen{position:fixed;inset:0;z-index:9999;background:var(--navy);display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden}
+#loginScreen::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(201,162,39,.12) 0%,transparent 70%);top:-200px;left:-200px}
+#loginScreen::after{content:'';position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(30,50,114,.6) 0%,transparent 70%);bottom:-200px;right:-200px}
+.lbox{position:relative;z-index:1;background:#fff;border-radius:28px;padding:40px 28px 32px;width:100%;max-width:360px;text-align:center;box-shadow:0 32px 80px rgba(0,0,0,.5)}
+.lbadge{width:80px;height:80px;border-radius:24px;background:linear-gradient(145deg,var(--navy),var(--navy3));display:inline-flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:20px;box-shadow:0 8px 24px rgba(13,27,62,.4)}
+.lbox h1{font-size:22px;font-weight:800;color:var(--navy);margin-bottom:4px}
+.lbox p{font-size:13px;color:var(--mu);margin-bottom:28px;font-weight:500}
+.linput{width:100%;padding:13px 16px;margin-bottom:12px;font-size:15px;font-weight:500;border:1.5px solid var(--bdr);border-radius:var(--r12);outline:none;background:#f7f9fc;color:var(--txt);transition:border-color .2s,box-shadow .2s}
+.linput:focus{border-color:var(--blue);background:#fff;box-shadow:0 0 0 3px rgba(26,86,219,.1)}
+#lbtn{width:100%;padding:14px;background:linear-gradient(135deg,var(--navy),var(--navy3));color:#fff;border:none;border-radius:var(--r12);font-size:15px;font-weight:700;box-shadow:0 6px 20px rgba(13,27,62,.4);transition:transform .1s}
+#lbtn:active{transform:scale(.98)}
+#lerr{color:var(--red);font-size:13px;font-weight:600;margin-top:10px;min-height:18px}
+
+/* ══ HEADER ══ */
+#app-hdr{position:sticky;top:0;z-index:200;background:linear-gradient(135deg,var(--navy),var(--navy3));box-shadow:0 4px 24px rgba(13,27,62,.35)}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 0}
+.hdr-brand{display:flex;align-items:center;gap:10px}
+.hdr-logo{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid rgba(255,255,255,.15)}
+.hdr-title{font-size:15px;font-weight:800;color:#fff}
+.hdr-sub{font-size:11px;color:rgba(255,255,255,.55);font-weight:500;margin-top:1px}
+.hdr-actions{display:flex;align-items:center;gap:8px}
+.hdr-btn{width:38px;height:38px;border-radius:var(--r8);background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.sync-pill{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:20px;padding:5px 10px;font-size:11px;color:rgba(255,255,255,.75);font-weight:600}
+#syncDot{width:7px;height:7px;border-radius:50%}
+#syncDot.ok{background:#4ade80}
+#syncDot.busy{background:#fbbf24;animation:pulse 1s infinite}
+#syncDot.err{background:#f87171}
+#syncDot.off{background:rgba(255,255,255,.3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+#tab-bar{display:flex;padding:0 8px;border-top:1px solid rgba(255,255,255,.1);margin-top:10px}
+.tab-btn{flex:1;padding:11px 8px;background:none;border:none;color:rgba(255,255,255,.5);font-size:13px;font-weight:600;border-bottom:2.5px solid transparent;transition:all .18s;cursor:pointer}
+.tab-btn.on{color:#fff;border-bottom-color:var(--gold2)}
+
+/* ══ CONTENT ══ */
+.tab-c{display:none}.tab-c.on{display:block}
+.cnt{padding:14px;max-width:1000px;margin:0 auto}
+
+/* ══ STATS ══ */
+.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:8px}
+.stat-card{background:var(--sur);border-radius:10px;padding:10px 10px;border:1px solid rgba(221,229,244,.6);box-shadow:var(--sh1);position:relative;overflow:hidden}
+.stat-card::after{content:'';position:absolute;right:-6px;bottom:-6px;width:40px;height:40px;border-radius:50%;opacity:.06;background:var(--blue)}
+.stat-icon{font-size:13px;margin-bottom:2px;display:block}
+.stat-val{font-size:18px;font-weight:800;color:var(--navy);letter-spacing:-.5px;line-height:1;display:block;margin-bottom:2px}
+.stat-lbl{font-size:9px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.3px}
+.stat-card.miss-col::after{background:var(--red)}
+.stat-card.miss-col .stat-val{color:var(--red)}
+.stat-card.sj-col::after{background:var(--purple)}
+.stat-card.sj-col .stat-val{color:var(--purple)}
+.stat-card.recv-col::after{background:var(--green)}
+.stat-card.recv-col .stat-val{color:var(--green)}
+.stat-card.sent-col::after{background:var(--amber)}
+.stat-card.sent-col .stat-val{color:var(--amber)}
+
+/* ══ MISMATCH ALERT (top) ══ */
+#mismatchBanner{display:none;background:linear-gradient(135deg,#dc2626,#b91c1c);border-radius:var(--r12);padding:12px 14px;margin-bottom:10px;cursor:pointer}
+#mismatchBanner.show{display:block}
+.mb-title{font-weight:800;font-size:14px;color:#fff}
+.mb-sub{font-size:12px;color:rgba(255,255,255,.8);margin-top:3px}
+.mb-count{background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;color:#fff;display:inline-block;margin-top:6px}
+
+/* ══ STENO PENDING (top) ══ */
+#stenoBanner{display:none;background:linear-gradient(135deg,var(--amber),#b45309);border-radius:var(--r12);padding:12px 14px;margin-bottom:10px;cursor:pointer}
+#stenoBanner.show{display:block}
+
+/* ══ SEARCH ══ */
+.search-wrap{position:sticky;top:100px;z-index:100;background:var(--bg);padding:0 0 8px}
+.search-inner{background:var(--sur);border-radius:var(--r12);padding:10px 12px;box-shadow:var(--sh1);border:1px solid rgba(221,229,244,.6)}
+.search-box{display:flex;align-items:center;gap:8px;background:#f0f3f9;border-radius:var(--r8);padding:9px 12px;margin-bottom:8px}
+.search-box input{flex:1;border:none;background:transparent;font-size:15px;color:var(--txt);font-weight:500;outline:none}
+.search-box input::placeholder{color:var(--mu)}
+.filter-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.filter-chips::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;display:flex;align-items:center;gap:4px;padding:6px 11px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--bdr);background:var(--bg);color:var(--mu);cursor:pointer;transition:all .15s}
+.chip.a-all{background:#e8f0fe;border-color:rgba(26,86,219,.3);color:var(--blue)}
+.chip.a-pending{background:#fff3cd;border-color:rgba(217,119,6,.3);color:var(--amber)}
+.chip.a-rcv{background:#f0fdf4;border-color:rgba(22,163,74,.3);color:var(--green)}
+.chip.a-miss{background:#fef2f2;border-color:rgba(220,38,38,.3);color:var(--red)}
+.chip.a-steno{background:#f3e8ff;border-color:rgba(124,58,237,.3);color:var(--purple)}
+.chip-cnt{background:rgba(0,0,0,.08);border-radius:20px;padding:1px 6px;font-size:11px;font-weight:700}
+
+/* ══ TABLE ══ */
+.twrap{background:var(--sur);border-radius:var(--r16);overflow:hidden;box-shadow:var(--sh1);border:1px solid rgba(221,229,244,.6);margin-bottom:12px}
+.twrap-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:600px}
+th{background:#f0f3f9;padding:9px 12px;font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;text-align:left;position:sticky;top:0;z-index:10;border-bottom:1.5px solid var(--bdr)}
+td{padding:9px 12px;font-size:13px;border-bottom:1px solid #f0f3f9;color:var(--txt);font-weight:500}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f7f9fc}
+.td-cn{color:var(--blue);font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline dotted}
+.td-party{font-weight:600;font-size:13px}
+.td-meta{font-size:11.5px;color:var(--mu)}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.2px}
+.b-sent{background:#fef9c3;color:#a16207}
+.b-rcv{background:#dcfce7;color:#15803d}
+.b-miss{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;animation:blink 2s infinite}
+.b-steno{background:#f3e8ff;color:#6d28d9}
+.b-judge{background:#e0f2fe;color:#0369a1}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.6}}
+tr.miss-row td{background:#fff5f5!important}
+
+/* ══ BUTTONS ══ */
+.btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:12px 16px;margin-top:8px;font-size:14px;font-weight:700;border:none;border-radius:var(--r8);cursor:pointer;transition:transform .1s;position:relative;overflow:hidden}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:linear-gradient(135deg,var(--blue),var(--navy3));color:#fff;box-shadow:0 3px 12px rgba(26,86,219,.3)}
+.btn.success{background:linear-gradient(135deg,var(--green),#15803d);color:#fff;box-shadow:0 3px 12px rgba(22,163,74,.3)}
+.btn.danger{background:linear-gradient(135deg,var(--red),#b91c1c);color:#fff}
+.btn.amber{background:linear-gradient(135deg,var(--amber),#b45309);color:#fff}
+.btn.neutral{background:linear-gradient(135deg,#94a3b8,#64748b);color:#fff}
+.btn.purple{background:linear-gradient(135deg,var(--purple),#6d28d9);color:#fff}
+.btn.sm{padding:7px 14px;font-size:12px;margin-top:0;width:auto}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.g2 .btn{margin-top:0}
+
+/* ══ SECTION CARD ══ */
+.sec{background:var(--sur);border-radius:var(--r16);padding:16px;margin-bottom:12px;border:1px solid rgba(221,229,244,.6);box-shadow:var(--sh1)}
+.sec-hd{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.sec-hd .ico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.ico.blue{background:#e8f0fe}.ico.green{background:#f0fdf4}.ico.amber{background:#fffbeb}.ico.red{background:#fef2f2}.ico.purple{background:#f3e8ff}.ico.teal{background:#ecfeff}
+.sec-hd .lbl{font-size:13px;font-weight:700;color:var(--txt)}
+.sec-hd .sub{font-size:11px;color:var(--mu);font-weight:500}
+
+/* ══ FORM ══ */
+.field{margin-bottom:10px}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+input[type=text],input[type=date],input[type=password],select,textarea{width:100%;padding:11px 14px;font-size:14px;font-weight:500;border:1.5px solid var(--bdr);border-radius:var(--r8);background:#f7f9fc;color:var(--txt);outline:none;transition:border-color .18s,box-shadow .18s;appearance:none}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff;box-shadow:0 0 0 3px rgba(26,86,219,.1)}
+.smsg{margin-top:8px;padding:10px 14px;border-radius:var(--r8);font-size:13px;font-weight:600;display:none}
+.s-ok{background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;display:block}
+.s-err{background:#fef2f2;color:#b91c1c;border:1.5px solid #fca5a5;display:block}
+.s-info{background:#eef2ff;color:var(--blue);border:1.5px solid #93b4fd;display:block}
+.s-warn{background:#fffbeb;color:#92400e;border:1.5px solid #fcd34d;display:block}
+
+/* ══ MODAL ══ */
+.modal{position:fixed;inset:0;z-index:900;background:rgba(13,27,62,.6);display:none;align-items:flex-end;justify-content:center;padding:0;backdrop-filter:blur(4px)}
+.modal.center{align-items:center;padding:20px}
+.modal.on{display:flex}
+.msh{background:var(--sur);border-radius:24px 24px 0 0;padding:20px 16px 32px;width:100%;max-width:500px;max-height:92vh;overflow-y:auto}
+.modal.center .msh{border-radius:20px;padding:20px 18px 24px;max-height:88vh}
+.mt{font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px}
+.msub{font-size:12px;color:var(--mu);font-weight:500;margin-bottom:14px}
+
+/* ══ TOAST ══ */
+#toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:rgba(13,27,62,.93);color:#fff;padding:11px 20px;border-radius:30px;font-size:13px;font-weight:600;z-index:9000;opacity:0;transition:all .3s var(--ease);pointer-events:none;white-space:nowrap;max-width:90vw}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ══ SCAN OVERLAY ══ */
+#scan-ov{position:fixed;inset:0;z-index:950;background:#000;display:none;flex-direction:column}
+#scan-ov.on{display:flex}
+#scan-box{flex:1;position:relative;overflow:hidden}
+#scan-vid{width:100%;height:100%;object-fit:cover}
+#scan-frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:240px;height:240px;border:2px solid rgba(255,255,255,.3);border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
+#scan-frame::before,#scan-frame::after{content:'';position:absolute;width:28px;height:28px;border-color:var(--gold2);border-style:solid;border-width:0}
+#scan-frame::before{top:-2px;left:-2px;border-top-width:3px;border-left-width:3px;border-radius:6px 0 0 0}
+#scan-frame::after{bottom:-2px;right:-2px;border-bottom-width:3px;border-right-width:3px;border-radius:0 0 6px 0}
+#qr-hl{position:absolute;border:3px solid #4ade80;border-radius:6px;display:none;transition:all .1s}
+#scan-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+#scan-flash.go{animation:sflash .3s}
+@keyframes sflash{0%{opacity:.7}100%{opacity:0}}
+#scan-bar{background:rgba(13,27,62,.9);padding:12px 14px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+#scan-ml{font-size:13px;font-weight:700;color:#fff;text-align:center}
+#scan-sb{font-size:12px;color:rgba(255,255,255,.6);text-align:center;min-height:18px}
+#scan-card{display:none;margin:8px 14px 0;padding:12px 14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;cursor:pointer}
+.scan-btn-row{display:flex;gap:8px}
+.scan-btn-row button{flex:1;padding:10px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+#scan-close-btn{background:rgba(255,255,255,.1);color:#fff}
+#cont-btn{background:var(--navy2);color:#fff;border:1px solid rgba(255,255,255,.15)!important}
+#cont-btn.on{background:var(--green)!important}
+
+/* ══ FAB ══ */
+.fab-row{position:fixed;bottom:16px;right:14px;display:flex;flex-direction:column;gap:9px;z-index:100}
+.fab{width:160px;padding:12px 14px;border-radius:var(--r16);border:none;font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:var(--sh3);transition:transform .1s}
+.fab:active{transform:scale(.96)}
+.fab-rcv{background:linear-gradient(135deg,var(--green),#15803d)}
+.fab-office{background:linear-gradient(135deg,var(--blue),var(--blueh))}
+.fab-sj{background:linear-gradient(135deg,var(--purple),#5b21b6)}
+
+/* ══ BOTTOM NAV ══ */
+#bot-nav{position:fixed;bottom:0;left:0;right:0;background:var(--sur);border-top:1px solid var(--bdr);display:flex;z-index:200;padding-bottom:env(safe-area-inset-bottom)}
+.nav-btn{flex:1;padding:10px 4px 8px;background:none;border:none;font-size:10px;font-weight:600;color:var(--mu);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:color .15s}
+.nav-btn .ni{font-size:20px}
+.nav-btn.on{color:var(--blue)}
+
+/* ══ MISMATCH LIST ══ */
+.miss-item{background:#fff;border:2px solid var(--red);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.miss-item-cn{font-weight:800;font-size:15px;color:var(--navy)}
+.miss-item-party{font-size:12px;color:var(--mu);margin-top:3px}
+.miss-item-badge{font-size:10px;font-weight:700;background:#fee2e2;color:var(--red);padding:3px 9px;border-radius:20px;display:inline-block;margin-top:5px}
+
+/* ══ DATE PICKER ══ */
+.date-pill-row{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
+.date-pill-row::-webkit-scrollbar{display:none}
+.date-pill{flex-shrink:0;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid var(--bdr);background:var(--bg);color:var(--mu);cursor:pointer;transition:all .15s}
+.date-pill.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+
+/* ══ EMPTY STATE ══ */
+.empty-state{text-align:center;padding:40px 20px;color:var(--mu)}
+.empty-state .ei{font-size:42px;margin-bottom:12px}
+.empty-state .et{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:6px}
+.empty-state .es{font-size:13px}
+
+/* ══ CASE DETAIL MODAL ══ */
+#caseDetailModal .msh{max-width:440px;border-radius:20px}
+.cd-section{background:#f7f9fc;border-radius:10px;padding:11px 13px;margin-bottom:8px}
+.cd-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.cd-row:last-child{margin-bottom:0}
+.cd-key{font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.4px;flex-shrink:0;margin-right:8px}
+.cd-val{font-size:13px;font-weight:600;color:var(--txt);text-align:right}
+
+/* ══ LOCATION BTNS ══ */
+.loc-btn{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:12px;border:2px solid var(--bdr);background:var(--sur);cursor:pointer;margin-bottom:8px;transition:all .15s;width:100%}
+.loc-btn:active{transform:scale(.97)}
+.loc-btn.judge{border-color:#0369a1;background:#e0f2fe}
+.loc-btn.steno{border-color:#6d28d9;background:#f3e8ff}
+.loc-btn .li{font-size:22px}
+.loc-btn .lt{font-size:14px;font-weight:700}
+.loc-btn .ls{font-size:11px;color:var(--mu);font-weight:500;margin-top:1px}
+
+/* ════════════════════════════════════════════
+   ✦ PREMIUM POLISH LAYER ✦  (Pure CSS — no logic)
+════════════════════════════════════════════ */
+#app-hdr{
+  background:linear-gradient(135deg,var(--navy) 0%,var(--navy3) 55%,var(--navy2) 100%)!important;
+  box-shadow:var(--sh-navy)!important;backdrop-filter:var(--glass-blur);
+  position:sticky;top:0;z-index:200;
+}
+#app-hdr::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent)}
+
+/* Stat cards: lift + staggered entrance */
+.stat-card{
+  border-radius:var(--r12)!important;border:1px solid var(--bdr2)!important;
+  transition:transform .25s var(--ease-spring),box-shadow .25s var(--ease)!important;
+  animation:cardIn .45s var(--ease-out) backwards;
+}
+.stat-card:nth-child(1){animation-delay:.02s}
+.stat-card:nth-child(2){animation-delay:.06s}
+.stat-card:nth-child(3){animation-delay:.10s}
+.stat-card:nth-child(4){animation-delay:.14s}
+.stat-card:active{transform:scale(.96)!important}
+@media(hover:hover){.stat-card:hover{transform:translateY(-2px);box-shadow:var(--sh2)!important}}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* Floating glass bottom nav */
+#bot-nav{background:var(--glass-bg)!important;backdrop-filter:var(--glass-blur);border-top:1px solid var(--glass-brd)!important}
+
+/* Tab pill underline */
+.tab-btn{position:relative}
+.tab-btn.on::after{content:'';position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);width:32px;height:3px;border-radius:3px;background:var(--gold2);box-shadow:0 0 12px var(--gold2)}
+
+/* Inputs refined focus */
+input:focus,select:focus,textarea:focus{border-color:var(--blue)!important;box-shadow:0 0 0 4px var(--blue-soft)!important;outline:none}
+
+/* Button press feedback */
+button{transition:transform .12s var(--ease),filter .2s,background .2s}
+button:active{transform:scale(.97)}
+
+/* Tab content + modal entrance */
+.tab-c.on{animation:tabIn .35s var(--ease-out)}
+@keyframes tabIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.modal.on .msh{animation:modalIn .3s var(--ease-spring)}
+@keyframes modalIn{from{opacity:0;transform:scale(.94) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
+
+/* Table rows hover */
+@media(hover:hover){.twrap tbody tr:hover{background:var(--sur3)}}
+.twrap tbody tr{transition:background .15s var(--ease)}
+
+/* Banners polished entrance */
+#mismatchBanner.show,#stenoBanner.show{animation:bannerIn .4s var(--ease-spring)}
+@keyframes bannerIn{from{opacity:0;transform:scale(.97) translateY(-6px)}to{opacity:1;transform:scale(1) translateY(0)}}
+
+/* Loading shimmer */
+.shimmer{background:linear-gradient(90deg,var(--sur2) 25%,var(--sur3) 50%,var(--sur2) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+
+/* Toast premium */
+#toast,.toast{backdrop-filter:blur(12px);box-shadow:var(--sh3)!important;border-radius:var(--r12)!important}
+
+/* Theme toggle spin */
+#themeToggle{transition:transform .4s var(--ease-spring)}
+#themeToggle:active{transform:rotate(180deg) scale(.9)}
+
+/* Reduced motion */
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="lbox">
+    <div class="lbadge">📋</div>
+    <h1>Peshgar Manager</h1>
+    <p>File tracking — Peshkaar Office</p>
+    <input class="linput" type="password" id="lpwd" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button id="lbtn" onclick="doLogin()">🔓 Login</button>
+    <div id="lerr"></div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div id="app-hdr" style="display:none">
+  <div class="hdr-top">
+    <div class="hdr-brand">
+      <div class="hdr-logo">📋</div>
+      <div>
+        <div class="hdr-title">Peshgar Manager</div>
+        <div class="hdr-sub" id="hdr-date-label">—</div>
+      </div>
+    </div>
+    <div class="hdr-actions">
+      <div class="sync-pill" id="syncPill">
+        <div id="syncDot" class="off"></div>
+        <span id="syncTxt">Offline</span>
+      </div>
+      <label style="display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);border-radius:8px;padding:4px 8px;cursor:pointer" title="Date chunein">
+        <span style="font-size:15px">📅</span>
+        <input type="date" id="manualDateInput"
+          style="border:none;background:transparent;font-size:11px;outline:none;color:#fff;font-weight:700;cursor:pointer;max-width:100px"
+          onchange="addManualDate(this.value)">
+      </label>
+      <button class="hdr-btn" id="themeToggle" onclick="toggleTheme()" title="Dark/Light Mode">🌙</button>
+    </div>
+  </div>
+  <div id="tab-bar">
+    <button class="tab-btn on" onclick="switchTab('files')" data-tab="files">📁 Files</button>
+    <button class="tab-btn" onclick="switchTab('import')" data-tab="import">📤 Import</button>
+  </div>
+</div>
+
+<!-- ════════════ FILES TAB ════════════ -->
+<div class="tab-c on" id="tab-files">
+  <div class="cnt">
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-icon">📤</span>
+        <span class="stat-val" id="st-total">0</span>
+        <span class="stat-lbl">CM Sent</span>
+      </div>
+      <div class="stat-card recv-col">
+        <span class="stat-icon">📥</span>
+        <span class="stat-val" id="st-rcv">0</span>
+        <span class="stat-lbl">Received</span>
+      </div>
+      <div class="stat-card sent-col">
+        <span class="stat-icon">📤</span>
+        <span class="stat-val" id="st-send">0</span>
+        <span class="stat-lbl">Sent Back</span>
+      </div>
+      <div class="stat-card miss-col" onclick="openMismatchModal()" style="cursor:pointer">
+        <span class="stat-icon">⚠️</span>
+        <span class="stat-val" id="st-miss">0</span>
+        <span class="stat-lbl">Mismatch</span>
+      </div>
+      <div class="stat-card sj-col" onclick="openStenoModal()" style="cursor:pointer">
+        <span class="stat-icon">🖊️</span>
+        <span class="stat-val" id="st-sj">0</span>
+        <span class="stat-lbl">Steno/Judge</span>
+      </div>
+    </div>
+
+    <!-- Search + Filter Chips -->
+    <div class="search-wrap">
+      <div class="search-inner">
+        <div class="search-box">
+          <span class="search-ico">🔍</span>
+          <input type="text" id="searchBox" placeholder="Case no ya party name..." oninput="onSearch()">
+          <span id="searchClear" style="font-size:14px;color:var(--mu);cursor:pointer;display:none" onclick="clearSearch()">✕</span>
+        </div>
+        <div class="filter-chips" id="filterChips">
+          <div class="chip a-all" onclick="setFilter('all')">All <span class="chip-cnt" id="fc-all">0</span></div>
+          <div class="chip" onclick="setFilter('pending')" id="fc-pending-chip">CM Sent <span class="chip-cnt" id="fc-pending">0</span></div>
+          <div class="chip" onclick="setFilter('rcv')" id="fc-rcv-chip">Received <span class="chip-cnt" id="fc-rcv">0</span></div>
+          <div class="chip" onclick="setFilter('miss')" id="fc-miss-chip">Mismatch <span class="chip-cnt" id="fc-miss">0</span></div>
+          <div class="chip" onclick="setFilter('steno')" id="fc-steno-chip">Steno <span class="chip-cnt" id="fc-steno">0</span></div>
+          <div class="chip" onclick="setFilter('judge')" id="fc-judge-chip">Judge <span class="chip-cnt" id="fc-judge">0</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Banners — chips ke neeche, table ke upar -->
+    <div id="mismatchBanner" onclick="openMismatchModal()">
+      <div class="mb-title">⚠️ Mismatch Alert — Sent par Received nahi!</div>
+      <div class="mb-sub">Court Manager se sent hui lekin Peshgar ne receive nahi ki</div>
+      <div class="mb-count" id="mismatchCount">0 files</div>
+    </div>
+
+    <div id="stenoBanner" onclick="openStenoModal()">
+      <div class="mb-title" style="color:#fff">🖊️ Steno/Judge ke paas pending files</div>
+      <div class="mb-sub" style="color:rgba(255,255,255,.8)">Office se bahar nahi gayi</div>
+      <div class="mb-count" id="stenoCount">0 files</div>
+    </div>
+
+    <!-- Table -->
+    <div class="twrap">
+      <div class="twrap-scroll">
+        <table>
+          <thead><tr>
+            <th>Sr</th>
+            <th>Case No</th>
+            <th>Party</th>
+            <th>U/S</th>
+            <th>PS</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="fileTable">
+            <tr><td colspan="6" class="empty-state" style="padding:40px;text-align:center;color:var(--mu)">Koi date select nahi ki ya data nahi hai</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════ IMPORT TAB ════════════ -->
+<div class="tab-c" id="tab-import">
+  <div class="cnt">
+
+    <!-- WhatsApp Excel Upload -->
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="ico amber">📤</div>
+        <div><div class="lbl">WhatsApp se Excel Upload</div><div class="sub">Court Manager se export ki xlsx file upload karo</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--mu);margin-bottom:12px">Court Manager se export ki gyi Excel file yahan upload karo — WhatsApp par jo file ayi ho.</p>
+      <input type="file" id="excelFile" accept=".xlsx,.xls" style="margin-bottom:4px">
+      <button class="btn primary" onclick="uploadExcel()" style="margin-top:8px">📤 Upload & Import karo</button>
+      <div id="uploadMsg" class="smsg"></div>
+    </div>
+
+    <!-- Firebase Sync -->
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="ico blue">☁️</div>
+        <div><div class="lbl">Firebase Sync</div><div class="sub">Court Manager se real-time data sync</div></div>
+      </div>
+      <div class="field"><label>Firebase API Key</label><input type="text" id="fbKey" placeholder="AIzaSy..."></div>
+      <div class="field"><label>App ID</label><input type="text" id="fbAppId" placeholder="1:123...web:abc..."></div>
+      <div class="field"><label>Project ID (optional)</label><input type="text" id="fbPid" placeholder="court-file-system"></div>
+      <div class="g2">
+        <button class="btn primary" onclick="fbConnect()" style="margin-top:0">🔗 Connect</button>
+        <button class="btn neutral" onclick="fbDisconnect()" style="margin-top:0">✕ Disconnect</button>
+      </div>
+      <button class="btn success" onclick="fbPullData()" style="margin-top:8px">🔄 Sync Now (Pull)</button>
+      <div id="fbMsg" class="smsg"></div>
+    </div>
+
+    <!-- Export -->
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="ico green">⬇️</div>
+        <div><div class="lbl">Export</div><div class="sub">Current date ka data Excel mein download karo</div></div>
+      </div>
+      <button class="btn success" onclick="exportExcel()">📊 Excel Export</button>
+    </div>
+
+    <!-- Backup -->
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="ico teal">💾</div>
+        <div><div class="lbl">Backup & Restore</div><div class="sub">Data backup lo ya restore karo</div></div>
+      </div>
+      <div class="g2">
+        <button class="btn primary" onclick="exportBackup()" style="margin-top:0">💾 Backup</button>
+        <button class="btn neutral" onclick="document.getElementById('restoreFile').click()" style="margin-top:0">📂 Restore</button>
+      </div>
+      <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(event)">
+      <div id="backupMsg" class="smsg"></div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ════ LOCATION PROMPT MODAL ════ -->
+<div class="modal center" id="locPromptModal">
+  <div class="msh" style="max-width:380px;width:95%">
+    <div class="mt">📌 File kahan gayi?</div>
+    <div class="msub" id="locPromptCN">—</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
+      <button onclick="pgSetLocFromPrompt('steno')"
+        style="padding:18px 8px;background:#f3e8ff;border:2px solid #7c3aed;border-radius:12px;cursor:pointer;font-size:15px;font-weight:700;color:#5b21b6">
+        🖊️<br>Steno
+      </button>
+      <button onclick="pgSetLocFromPrompt('judge')"
+        style="padding:18px 8px;background:#e0f2fe;border:2px solid #0369a1;border-radius:12px;cursor:pointer;font-size:15px;font-weight:700;color:#075985">
+        ⚖️<br>Judge
+      </button>
+    </div>
+    <button class="btn neutral" onclick="document.getElementById('locPromptModal').classList.remove('on')" style="width:100%;margin-top:0">Baad mein</button>
+  </div>
+</div>
+<div class="fab-row" id="fabRow" style="display:none">
+  <button class="fab fab-rcv" onclick="startScan('receive')">📥 Receive (QR)</button>
+  <button class="fab fab-office" onclick="startScan('send')">📤 Send to Office (QR)</button>
+  <button class="fab fab-sj" onclick="startScan('tosj')">🖊️ Send to Steno/Judge</button>
+</div>
+
+<!-- ════ SCAN OVERLAY ════ -->
+<div id="scan-ov">
+  <div id="scan-box">
+    <video id="scan-vid" autoplay playsinline muted></video>
+    <div id="scan-frame"></div>
+    <div id="qr-hl"></div>
+    <div id="scan-flash"></div>
+    <div id="scan-card"></div>
+  </div>
+  <div id="scan-bar">
+    <div id="scan-ml">Scan</div>
+    <div id="scan-sb">Camera shuru ho rahi hai...</div>
+    <div class="scan-btn-row">
+      <button id="scan-close-btn" onclick="closeScan()">✕ Band Karo</button>
+      <button id="cont-btn" onclick="toggleCont()">🔁 Ek ek: ON</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ TOAST ════ -->
+<div id="toast"></div>
+
+<!-- ════ CASE DETAIL MODAL ════ -->
+<div class="modal center" id="caseDetailModal">
+  <div class="msh" style="max-width:440px">
+    <div class="mt" id="cd-title">📁 Case Detail</div>
+    <div class="msub" id="cd-party">—</div>
+    <div class="cd-section" id="cd-info"></div>
+
+    <!-- Location — only if received and not sent to office -->
+    <div id="cd-loc-wrap" style="display:none;margin-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px">📌 File kahan bhejni hai?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button onclick="setFileLocation(_cdCN,'steno')"
+          style="padding:12px 8px;background:#f3e8ff;border:2px solid #7c3aed;border-radius:10px;cursor:pointer;font-size:13px;font-weight:700;color:#5b21b6">
+          🖊️ Steno
+        </button>
+        <button onclick="setFileLocation(_cdCN,'judge')"
+          style="padding:12px 8px;background:#e0f2fe;border:2px solid #0369a1;border-radius:10px;cursor:pointer;font-size:13px;font-weight:700;color:#075985">
+          ⚖️ Judge
+        </button>
+      </div>
+    </div>
+
+    <div style="margin-top:10px">
+      <div class="field">
+        <label>Remark</label>
+        <input type="text" id="cd-remark-inp" placeholder="Koi note..." oninput="updateRemarkLive()">
+      </div>
+    </div>
+    <button class="btn neutral" onclick="closeCaseDetail()" style="margin-top:8px">✕ Band Karo</button>
+  </div>
+</div>
+
+<!-- ════ MISMATCH MODAL ════ -->
+<div class="modal center" id="mismatchModal">
+  <div class="msh" style="max-width:460px">
+    <div class="mt">⚠️ Mismatch Files</div>
+    <div class="msub">Court Manager ne send kiya par Peshgar ne receive nahi kiya</div>
+    <div id="mismatchList"></div>
+    <button class="btn neutral" onclick="closeMismatchModal()">✕ Band Karo</button>
+  </div>
+</div>
+
+<!-- ════ STENO MODAL ════ -->
+<div class="modal center" id="stenoModal">
+  <div class="msh" style="max-width:460px">
+    <div class="mt">🖊️ Steno/Judge ke paas</div>
+    <div class="msub">Ye files office se nahi gayi — steno ya judge ke paas hain</div>
+    <div id="stenoModalList"></div>
+    <button class="btn neutral" onclick="closeStenoModal()">✕ Band Karo</button>
+  </div>
+</div>
+
+<div id="bot-nav"></div><!-- spacer -->
+
+<script>
+// ════════════════════════════════════
+// PESHGAR MANAGER — Core JS
+// ════════════════════════════════════
+
+const APP_PWD_KEY='pm_pwd';
+const DATA_KEY='pm_data'; // {dates:[{date,rows:[{srno,caseno,partyname,section,ps,sentStatus,remark,received,receiveddate,sentToOffice,sentToOfficeDate,location}]}]}
+const FB_CFG_KEY='pm_fb_cfg';
+
+let pData={dates:[]};         // all dates data
+let activeDate=null;           // currently selected date string
+let activeFilter='all';
+let searchQ='';
+let _cdCN=null;
+let _fbDb=null;
+let scanActive=false,scanStream=null,scanCtx='',contMode=false,scanLast='',scanCool=false;
+let scanDetector=null;
+
+// ═══ DARK / LIGHT THEME ═══
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  const btn=document.getElementById('themeToggle');
+  if(btn)btn.textContent=t==='dark'?'☀️':'🌙';
+  try{localStorage.setItem('pm_theme',t);}catch(e){}
+}
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';
+  applyTheme(cur==='dark'?'light':'dark');
+  if(navigator.vibrate)navigator.vibrate(12);
+}
+(function(){
+  let saved='light';
+  try{saved=localStorage.getItem('pm_theme')||'light';}catch(e){}
+  applyTheme(saved);
+})();
+
+// ══ AUTH ══
+function doLogin(){
+  const pwd=document.getElementById('lpwd').value;
+  const stored=localStorage.getItem(APP_PWD_KEY)||'peshgar123';
+  if(pwd===stored){
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app-hdr').style.display='block';
+    document.getElementById('fabRow').style.display='flex';
+    loadData();
+    tryAutoConnectFB();
+  } else {
+    document.getElementById('lerr').textContent='❌ Galat password';
+    setTimeout(()=>document.getElementById('lerr').textContent='',2000);
+  }
+}
+function doLogout(){if(!confirm('Logout karo?'))return;location.reload();}
+function changePwd(){
+  const n=document.getElementById('newPwd').value.trim();
+  const c=document.getElementById('confPwd').value.trim();
+  if(!n){showMsg('pwdMsg','⚠️ Password blank nahi ho sakta','s-warn');return;}
+  if(n!==c){showMsg('pwdMsg','❌ Passwords match nahi karte','s-err');return;}
+  localStorage.setItem(APP_PWD_KEY,n);
+  showMsg('pwdMsg','✅ Password badal gaya!','s-ok');
+}
+
+// ══ DATA STORAGE ══
+function saveData(){localStorage.setItem(DATA_KEY,JSON.stringify(pData));}
+function loadData(){
+  try{const d=JSON.parse(localStorage.getItem(DATA_KEY)||'null');if(d&&d.dates)pData=d;}catch(e){}
+  renderDatePills();
+  if(pData.dates.length){selectDate(pData.dates[pData.dates.length-1].date);}
+  updateDash();
+}
+
+// ══ DATE MANAGEMENT ══
+function addManualDate(val){
+  if(!val)return;
+  const exists=pData.dates.find(d=>d.date===val);
+  if(!exists){
+    pData.dates.push({date:val,rows:[]});
+    pData.dates.sort((a,b)=>b.date.localeCompare(a.date));
+    saveData();
+  }
+  selectDate(val);
+}
+
+function renderDatePills(){
+  // Pills removed — just update header date label
+  const hdl=document.getElementById('hdr-date-label');
+  if(hdl&&activeDate)hdl.textContent=fmtDateLabel(activeDate);
+}
+function fmtDateLabel(iso){
+  if(!iso)return'—';
+  const [y,m,d]=iso.split('-');
+  return`${d}-${m}-${y.slice(2)}`;
+}
+function selectDate(date){
+  activeDate=date;
+  renderDatePills();
+  const hdl=document.getElementById('hdr-date-label'); if(hdl)hdl.textContent=fmtDateLabel(date);
+  const sdl=document.getElementById('selectedDateLabel'); if(sdl)sdl.textContent=fmtDateLabel(date);
+  drawTable();
+  updateDash();
+}
+function getDateRows(date){
+  const d=pData.dates.find(x=>x.date===date);
+  return d?d.rows:[];
+}
+function setDateRows(date,rows){
+  const idx=pData.dates.findIndex(x=>x.date===date);
+  if(idx===-1)pData.dates.push({date,rows});
+  else pData.dates[idx].rows=rows;
+  saveData();
+  pgSchedulePush(date); // Firebase pe received status push (CM mismatch ke liye)
+}
+
+// Peshgar status push — debounced, CM isko padhke mismatch dikhata hai
+let _pgPushTimer=null;
+function pgSchedulePush(date){
+  if(!_fbDb)return;
+  clearTimeout(_pgPushTimer);
+  _pgPushTimer=setTimeout(async()=>{
+    try{
+      const rows=getDateRows(date);
+      const slim=rows.map(r=>({caseno:r.caseno,received:r.received||'',sentToOffice:r.sentToOffice||'',location:r.location||''}));
+      await _fbDb.collection('peshgar').doc(date).set({data:slim,at:Date.now()});
+    }catch(e){console.warn('pgPush:',e);}
+  },1500);
+}
+
+// ══ EXCEL UPLOAD (WhatsApp file) ══
+function uploadExcel(){
+  const f=document.getElementById('excelFile').files[0];
+  if(!f){showMsg('uploadMsg','⚠️ File select karo','s-warn');return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rawRows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      // Find header row
+      const rows=rawRows.filter(r=>r.some(c=>String(c||'').trim()!==''));
+      if(rows.length<2){showMsg('uploadMsg','❌ File mein data nahi mila','s-err');return;}
+
+      // Detect columns — flexible matching
+      const hdr=rows[0].map(h=>String(h||'').toLowerCase().trim());
+      const colIdx={
+        srno: findCol(hdr,['sr','sr.no','srno','sno','s.no']),
+        caseno: findCol(hdr,['case no','case_no','caseno','case number','case']),
+        partyname: findCol(hdr,['party name','partyname','party','naam']),
+        section: findCol(hdr,['section','u/s','under section','dhara']),
+        ps: findCol(hdr,['ps','police station','thana']),
+        sent: findCol(hdr,['sent','sent status','status']),
+        remark: findCol(hdr,['remark','remarks','note','notes']),
+      };
+
+      // Try to detect date from filename
+      const dateMatch=f.name.match(/(\d{4}-\d{2}-\d{2})/);
+      const todayISO=new Date().toISOString().split('T')[0];
+      const importDate=dateMatch?dateMatch[1]:todayISO;
+
+      const existingRows=getDateRows(importDate);
+      const existingMap=new Map(existingRows.map(r=>[String(r.caseno).toUpperCase(),r]));
+
+      const newRows=[];
+      for(let i=1;i<rows.length;i++){
+        const row=rows[i];
+        if(!row.some(c=>String(c||'').trim()!==''))continue;
+        const caseno=String(colIdx.caseno!==-1?row[colIdx.caseno]||'':'').trim().toUpperCase();
+        if(!caseno)continue;
+
+        const existing=existingMap.get(caseno);
+        const sentStatus=colIdx.sent!==-1?String(row[colIdx.sent]||'').trim():'';
+
+        newRows.push({
+          srno: colIdx.srno!==-1?String(row[colIdx.srno]||'').trim()||String(i):''+i,
+          caseno,
+          partyname: colIdx.partyname!==-1?String(row[colIdx.partyname]||'').trim():'',
+          section: colIdx.section!==-1?String(row[colIdx.section]||'').trim():'',
+          ps: colIdx.ps!==-1?String(row[colIdx.ps]||'').trim():'',
+          sentStatus: sentStatus||'',
+          remark: (existing&&existing.remark)||( colIdx.remark!==-1?String(row[colIdx.remark]||'').trim():''),
+          received: (existing&&existing.received)||'',
+          receiveddate: (existing&&existing.receiveddate)||'',
+          sentToOffice: (existing&&existing.sentToOffice)||'',
+          sentToOfficeDate: (existing&&existing.sentToOfficeDate)||'',
+          location: (existing&&existing.location)||'office',
+        });
+      }
+
+      setDateRows(importDate,newRows);
+      renderDatePills();
+      selectDate(importDate);
+      showMsg('uploadMsg',`✅ ${newRows.length} files import ho gayi! Date: ${fmtDateLabel(importDate)}`,'s-ok');
+      showToast(`✅ ${newRows.length} files imported!`);
+    }catch(err){showMsg('uploadMsg','❌ Error: '+err.message,'s-err');}
+  };
+  reader.readAsArrayBuffer(f);
+}
+function findCol(hdr,names){
+  for(const n of names){
+    const i=hdr.findIndex(h=>h.includes(n));
+    if(i!==-1)return i;
+  }
+  return -1;
+}
+
+// ══ SPEAK ══
+function pgSpeak(msg){
+  try{
+    if(typeof Android!=='undefined'&&Android.speak)return Android.speak(msg);
+    if(!window.speechSynthesis)return;
+    window.speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(msg);
+    u.lang='en-IN';u.rate=0.95;u.volume=1;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+// ══ DASHBOARD ══
+function updateDash(){
+  if(!activeDate){
+    ['st-total','st-rcv','st-send','st-miss','st-sj'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent='0';});
+    return;
+  }
+  const rows=getDateRows(activeDate);
+  // Total = Court Manager se sent files (jo humein milni chahiye)
+  const total=rows.filter(r=>r.sentStatus==='Sent').length;
+  const rcv=rows.filter(r=>r.received==='Received').length;
+  const sent=rows.filter(r=>r.sentToOffice==='Sent').length;
+  // Mismatch: Court Manager ne sent ki par peshgar ne receive nahi ki — define FIRST
+  const miss=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  // Steno/Judge (current date) for filter chips
+  const steno=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno');
+  const judge=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge');
+  const stenoJudge=[...steno,...judge];
+
+  // Steno/Judge ALL DATES count for stat card (#4)
+  let sjAllDates=0;
+  (pData.dates||[]).forEach(d=>{
+    (d.rows||[]).forEach(r=>{
+      if(r.received==='Received'&&r.sentToOffice!=='Sent'&&(r.location==='steno'||r.location==='judge'))sjAllDates++;
+    });
+  });
+
+  document.getElementById('st-total').textContent=total;
+  document.getElementById('st-rcv').textContent=rcv;
+  document.getElementById('st-send').textContent=sent;
+  document.getElementById('st-miss').textContent=miss.length;
+  const sjEl=document.getElementById('st-sj'); if(sjEl)sjEl.textContent=sjAllDates;
+
+  // Mismatch Banner
+  document.getElementById('mismatchCount').textContent=miss.length+' files';
+  const mb=document.getElementById('mismatchBanner');
+  mb.classList.toggle('show',miss.length>0);
+
+  // Steno Banner (all dates count)
+  document.getElementById('stenoCount').textContent=sjAllDates+' files';
+  document.getElementById('stenoBanner').classList.toggle('show',sjAllDates>0);
+
+  // Filter chips
+  const pending=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  const elAll=document.getElementById('fc-all'); if(elAll)elAll.textContent=total;
+  const elPend=document.getElementById('fc-pending'); if(elPend)elPend.textContent=pending.length;
+  const elRcv=document.getElementById('fc-rcv'); if(elRcv)elRcv.textContent=rcv;
+  const elMiss=document.getElementById('fc-miss'); if(elMiss)elMiss.textContent=miss.length;
+  const elSteno=document.getElementById('fc-steno'); if(elSteno)elSteno.textContent=steno.length;
+  const elJudge=document.getElementById('fc-judge'); if(elJudge)elJudge.textContent=judge.length;
+  // selectedDateLabel may or may not exist
+  const sdl=document.getElementById('selectedDateLabel'); if(sdl)sdl.textContent=activeDate?fmtDateLabel(activeDate):'';
+}
+
+// ══ TABLE ══
+function getFilteredRows(){
+  if(!activeDate)return[];
+  let rows=getDateRows(activeDate);
+  // Filter
+  if(activeFilter==='pending')rows=rows.filter(r=>r.sentStatus==='Sent'); // CM Sent files
+  else if(activeFilter==='rcv')rows=rows.filter(r=>r.received==='Received');
+  else if(activeFilter==='miss')rows=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  else if(activeFilter==='steno')rows=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno');
+  else if(activeFilter==='judge')rows=rows.filter(r=>r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge');
+  // Search
+  if(searchQ){
+    const q=searchQ.toLowerCase();
+    rows=rows.filter(r=>(r.caseno||'').toLowerCase().includes(q)||(r.partyname||'').toLowerCase().includes(q)||(r.ps||'').toLowerCase().includes(q));
+  }
+  return rows;
+}
+
+function drawTable(){
+  const tb=document.getElementById('fileTable');
+  const rows=getFilteredRows();
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--mu);font-size:13px;font-weight:500">${activeDate?'Koi file nahi mili':'Pehle date select karo'}</td></tr>`;
+    return;
+  }
+  tb.innerHTML=rows.map(r=>{
+    const isMiss=r.sentStatus==='Sent'&&r.received!=='Received';
+    const isSteno=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno';
+    const isJudge=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge';
+    let statusBadge='';
+    if(r.sentToOffice==='Sent')statusBadge='<span class="badge b-sent">✓ Sent</span>';
+    else if(isJudge)statusBadge='<span class="badge b-judge">⚖️ Judge</span>';
+    else if(isSteno)statusBadge='<span class="badge b-steno">🖊️ Steno</span>';
+    else if(r.received==='Received')statusBadge='<span class="badge b-rcv">✓ Rcvd</span>';
+    else if(isMiss)statusBadge='<span class="badge b-miss">⚠ Miss</span>';
+    else statusBadge='<span class="badge" style="background:#f0f3f9;color:var(--mu)">Pending</span>';
+
+    const cne=esc(r.caseno).replace(/'/g,"\\'");
+    return`<tr class="${isMiss?'miss-row':''}" id="row_${sId(r.caseno)}">
+      <td><span class="td-meta">${esc(r.srno)}</span></td>
+      <td><span class="td-cn" onclick="openCaseDetail('${cne}')">${esc(r.caseno)}</span></td>
+      <td><span class="td-party">${esc(r.partyname||'')}</span></td>
+      <td><span class="td-meta">${esc(r.section||'')}</span></td>
+      <td><span class="td-meta">${esc(r.ps||'')}</span></td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+function setFilter(f){
+  activeFilter=f;
+  document.querySelectorAll('.filter-chips .chip').forEach(c=>c.className='chip');
+  const map={all:'a-all',pending:'a-pending',rcv:'a-rcv',miss:'a-miss',steno:'a-steno',judge:'a-judge'};
+  const fArr=['all','pending','rcv','miss','steno','judge'];
+  const fi=fArr.indexOf(f);
+  const chips=document.querySelectorAll('.filter-chips .chip');
+  if(fi!==-1&&chips[fi])chips[fi].className='chip '+(map[f]||'');
+  drawTable();
+}
+let _searchDeb=null;
+function onSearch(){
+  searchQ=document.getElementById('searchBox').value.trim();
+  document.getElementById('searchClear').style.display=searchQ?'':'none';
+  clearTimeout(_searchDeb);
+  _searchDeb=setTimeout(()=>drawTable(),150);
+}
+function clearSearch(){
+  document.getElementById('searchBox').value='';
+  searchQ='';
+  document.getElementById('searchClear').style.display='none';
+  drawTable();
+}
+
+// ══ TABS ══
+let activeTab='files';
+function switchTab(t){
+  activeTab=t;
+  document.querySelectorAll('.tab-c').forEach(el=>el.classList.remove('on'));
+  document.getElementById('tab-'+t).classList.add('on');
+  document.querySelectorAll('#tab-bar .tab-btn').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
+  document.getElementById('fabRow').style.display=(t==='files'&&activeDate)?'flex':'none';
+}
+
+// ══ TOAST ══
+let _tT;
+function showToast(msg,type){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='show';
+  clearTimeout(_tT);_tT=setTimeout(()=>t.className='',2500);
+}
+function showMsg(id,msg,cls){
+  const el=document.getElementById(id);if(!el)return;
+  el.textContent=msg;el.className='smsg '+cls;
+  if(cls==='s-ok')setTimeout(()=>el.className='smsg',3000);
+}
+
+// ══ UTILITIES ══
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function sId(s){return String(s||'').replace(/[^a-zA-Z0-9_-]/g,'_')}
+function fmtD(iso){if(!iso)return'—';const[y,m,d]=String(iso).split('-');return`${d}-${m}-${y}`}
+
+// ══ CASE DETAIL ══
+let _cdRemarkTimer;
+function pgShowLocationPrompt(cn){
+  document.getElementById('locPromptCN').textContent=cn;
+  _cdCN=cn;
+  document.getElementById('locPromptModal').classList.add('on');
+}
+function pgSetLocFromPrompt(loc){
+  document.getElementById('locPromptModal').classList.remove('on');
+  if(!_cdCN)return;
+  updateField(activeDate,_cdCN,'location',loc);
+  updateField(activeDate,_cdCN,'locDate',new Date().toISOString().split('T')[0]);
+  drawTable();updateDash();
+  pgSpeak(loc==='steno'?'Steno':'Judge');
+  showToast(loc==='steno'?'🖊️ Steno ke paas':'⚖️ Judge ke paas');
+}
+
+function openStenoModal(){
+  // ALL dates se steno/judge files nikalo (req 7)
+  let allFiles=[];
+  const dates=pData.dates||[];
+  dates.forEach(d=>{
+    const rows=d.rows||[];
+    rows.forEach(r=>{
+      if(r.received==='Received'&&r.sentToOffice!=='Sent'&&(r.location==='steno'||r.location==='judge')){
+        allFiles.push({...r,_workDate:d.date});
+      }
+    });
+  });
+  allFiles.sort((a,b)=>(b._workDate||'').localeCompare(a._workDate||''));
+
+  let h='';
+  if(!allFiles.length){
+    h='<div style="text-align:center;padding:24px;color:var(--mu);font-size:13px">Koi file steno/judge ke paas nahi</div>';
+  }else{
+    allFiles.forEach(r=>{
+      const locColor=r.location==='steno'?{bg:'#f3e8ff',bd:'#7c3aed',fg:'#5b21b6',icon:'🖊️'}:{bg:'#e0f2fe',bd:'#0369a1',fg:'#075985',icon:'⚖️'};
+      h+=`<div style="background:#fff;border:2px solid ${locColor.bd};border-radius:10px;padding:11px 13px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+            <div style="font-size:11px;color:var(--mu);margin-top:2px">${esc(r.partyname||'—')}</div>
+          </div>
+          <span style="background:${locColor.bg};color:${locColor.fg};border:1.5px solid ${locColor.bd};padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700">${locColor.icon} ${r.location==='steno'?'Steno':'Judge'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px">
+          <div style="background:#f7f9fc;border-radius:6px;padding:5px 7px">
+            <div style="color:var(--mu);font-size:9px;font-weight:700">CM DATE</div>
+            <div style="font-weight:700;color:var(--navy)">${r._workDate?r._workDate.split('-').reverse().join('-'):'—'}</div>
+          </div>
+          <div style="background:#f0fdf4;border-radius:6px;padding:5px 7px">
+            <div style="color:var(--mu);font-size:9px;font-weight:700">RECEIVED</div>
+            <div style="font-weight:700;color:#16a34a">${r.receiveddate?fmtD(r.receiveddate):'—'}</div>
+          </div>
+          <div style="background:${locColor.bg};border-radius:6px;padding:5px 7px">
+            <div style="color:var(--mu);font-size:9px;font-weight:700">SENT TO</div>
+            <div style="font-weight:700;color:${locColor.fg}">${r.locDate?fmtD(r.locDate):'—'}</div>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  document.getElementById('stenoModalList').innerHTML=h;
+  document.getElementById('stenoModal').classList.add('on');
+}
+function closeStenoModal(){document.getElementById('stenoModal').classList.remove('on');}
+
+function openCaseDetail(cn){
+  if(!activeDate)return;
+  _cdCN=cn;
+  const rows=getDateRows(activeDate);
+  const r=rows.find(x=>x.caseno===cn);
+  if(!r)return;
+
+  document.getElementById('cd-title').textContent='📁 '+cn;
+  document.getElementById('cd-party').textContent=r.partyname||'—';
+  document.getElementById('cd-remark-inp').value=r.remark||'';
+
+  // Info section
+  const isMiss=r.sentStatus==='Sent'&&r.received!=='Received';
+  let infoHtml=`
+    <div class="cd-row"><span class="cd-key">U/S</span><span class="cd-val">${esc(r.section||'—')}</span></div>
+    <div class="cd-row"><span class="cd-key">PS</span><span class="cd-val">${esc(r.ps||'—')}</span></div>
+    <div class="cd-row"><span class="cd-key">Court Status</span><span class="cd-val">${r.sentStatus==='Sent'?'✓ Sent by Court':'—'}</span></div>
+    <div class="cd-row"><span class="cd-key">Peshgar Recv</span><span class="cd-val">${r.received==='Received'?'✓ Received ('+fmtD(r.receiveddate)+')':'Not received'}</span></div>
+    <div class="cd-row"><span class="cd-key">Sent to Office</span><span class="cd-val">${r.sentToOffice==='Sent'?'✓ Sent ('+fmtD(r.sentToOfficeDate)+')':'Not sent'}</span></div>
+    <div class="cd-row"><span class="cd-key">Location</span><span class="cd-val">${locLabel(r.location)}</span></div>
+  `;
+  if(isMiss)infoHtml=`<div style="background:#fee2e2;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:700;color:var(--red)">⚠️ MISMATCH — Court ne bheja par receive nahi ki</div>`+infoHtml;
+  document.getElementById('cd-info').innerHTML=infoHtml;
+
+  // Location select — show if received and not yet sent to office
+  const locWrap=document.getElementById('cd-loc-wrap');
+  if(locWrap)locWrap.style.display=(r.received==='Received'&&r.sentToOffice!=='Sent')?'block':'none';
+
+  document.getElementById('caseDetailModal').classList.add('on');
+}
+function locLabel(loc){
+  if(loc==='steno')return'🖊️ Steno ke paas';
+  if(loc==='judge')return'⚖️ Judge ke paas';
+  return'🗂️ Office mein';
+}
+function closeCaseDetail(){
+  document.getElementById('caseDetailModal').classList.remove('on');
+  _cdCN=null;
+}
+function updateRemarkLive(){
+  if(!_cdCN||!activeDate)return;
+  clearTimeout(_cdRemarkTimer);
+  _cdRemarkTimer=setTimeout(()=>{
+    const val=document.getElementById('cd-remark-inp').value;
+    updateField(activeDate,_cdCN,'remark',val);
+  },600);
+}
+function setFileLocation(cn,loc){
+  if(!activeDate)return;
+  updateField(activeDate,cn,'location',loc);
+  closeCaseDetail();
+  drawTable();updateDash();
+  showToast(loc==='steno'?'🖊️ Steno ke paas mark ho gaya':loc==='judge'?'⚖️ Judge ke paas mark ho gaya':'🗂️ Office mein wapis');
+}
+function updateField(date,cn,field,val){
+  const rows=getDateRows(date);
+  const idx=rows.findIndex(r=>r.caseno===cn);
+  if(idx===-1)return;
+  rows[idx][field]=val;
+  setDateRows(date,rows);
+}
+
+// ══ QR SCANNER ══
+async function startScan(ctx){
+  if(!activeDate){showToast('⚠️ Pehle date select karo','w');return;}
+  // #1 — Internet + Firebase guard
+  if(!navigator.onLine){showToast('📡 Internet nahi hai! Peshgar app sirf online chalti hai.','d');return;}
+  if(!_fbDb){showToast('☁️ Firebase connect nahi hai! Pehle sync karo.','d');return;}
+  scanCtx=ctx;contMode=false;scanLast='';scanCool=false;
+  const label=ctx==='receive'?'📥 File Receive — QR Scan karo':ctx==='tosj'?'🖊️ Steno/Judge ko bhejo — QR Scan karo':'📤 Office bhejo — QR Scan karo';
+  document.getElementById('scan-ml').textContent=label;
+  document.getElementById('scan-card').style.display='none';
+  document.getElementById('cont-btn').textContent='🔁 Continuous: OFF';
+  document.getElementById('cont-btn').className='';
+  document.getElementById('scan-sb').textContent='Camera shuru ho rahi hai...';
+  document.getElementById('scan-ov').classList.add('on');
+  try{if(!scanDetector)scanDetector=new BarcodeDetector({formats:['qr_code']});}
+  catch(e){document.getElementById('scan-sb').textContent='❌ BarcodeDetector support nahi hai';return;}
+  scanActive=true;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}});
+    scanStream=stream;
+    const vid=document.getElementById('scan-vid');vid.srcObject=stream;
+    vid.onloadedmetadata=()=>{vid.play();document.getElementById('scan-sb').textContent='📷 QR code frame ke saamne laao';schedDet();};
+    if(vid.readyState>=2){vid.play();document.getElementById('scan-sb').textContent='📷 QR code frame ke saamne laao';schedDet();}
+  }catch(err){document.getElementById('scan-sb').textContent='❌ Camera: '+err.message;}
+}
+function schedDet(){if(!scanActive)return;setTimeout(doDet,80);}
+async function doDet(){
+  if(!scanActive)return;
+  const vid=document.getElementById('scan-vid');
+  if(!vid||vid.readyState<2||vid.paused||vid.videoWidth===0){schedDet();return;}
+  try{
+    const bs=await scanDetector.detect(vid);
+    if(bs&&bs.length&&!scanCool){
+      const dec=bs[0].rawValue.trim();
+      if(dec&&(!contMode||dec!==scanLast)){
+        scanLast=dec;scanCool=true;
+        const fl=document.getElementById('scan-flash');fl.classList.remove('go');void fl.offsetWidth;fl.classList.add('go');
+        handleScanResult(dec);
+        if(!contMode){setTimeout(closeScan,700);return;}
+        else{setTimeout(()=>{scanCool=false;},2000);schedDet();return;}
+      }
+    }
+  }catch(e){}
+  schedDet();
+}
+function closeScan(){
+  scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
+  document.getElementById('scan-vid').srcObject=null;
+  document.getElementById('scan-ov').classList.remove('on');
+}
+function toggleCont(){
+  contMode=!contMode;scanLast='';scanCool=false;
+  const b=document.getElementById('cont-btn');
+  b.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');
+  b.className=contMode?'on':'';
+}
+function pgMatchCase(a,b){
+  // Level 1: exact
+  const au=String(a||'').toUpperCase().trim();
+  const bu=String(b||'').toUpperCase().trim();
+  if(au===bu)return true;
+  // Level 2: normalized (remove non-alphanumeric)
+  const an=au.replace(/[^A-Z0-9]/g,'');
+  const bn=bu.replace(/[^A-Z0-9]/g,'');
+  if(an===bn)return true;
+  // Level 3: contains with length ratio (avoid false positives)
+  if(an.length>=6&&bn.length>=6){
+    const ratio=Math.min(an.length,bn.length)/Math.max(an.length,bn.length);
+    if(ratio>=0.7){
+      const shorter=an.length<=bn.length?an:bn;
+      const longer=an.length<=bn.length?bn:an;
+      const idx=longer.indexOf(shorter);
+      if(idx!==-1){
+        const before=idx>0?longer[idx-1]:'';
+        const after=idx+shorter.length<longer.length?longer[idx+shorter.length]:'';
+        if(!/\d/.test(before)&&!/\d/.test(after))return true;
+      }
+    }
+  }
+  return false;
+}
+
+function handleScanResult(dec){
+  const cn=dec.toUpperCase().trim();
+  const rows=getDateRows(activeDate);
+  const idx=rows.findIndex(r=>pgMatchCase(r.caseno,cn));
+
+  if(idx===-1){
+    showSC('❌ '+cn+' — is date mein nahi mila','#dc2626');
+    if(navigator.vibrate)navigator.vibrate([100,50,100]);
+    return;
+  }
+
+  const actualCN=rows[idx].caseno;
+  const today=new Date().toISOString().split('T')[0];
+  if(scanCtx==='receive'){
+    if(rows[idx].received==='Received'){
+      showSC('ℹ️ '+actualCN+' — pehle se RECEIVED hai','#d97706');
+      pgSpeak('Already received');
+      if(navigator.vibrate)navigator.vibrate(80);
+    } else {
+      rows[idx].received='Received';
+      rows[idx].receiveddate=today;
+      rows[idx].location='office';
+      setDateRows(activeDate,rows);
+      drawTable();updateDash();
+      showSC('✅ RECEIVED — '+actualCN,'#16a34a');
+      showToast('✅ Received: '+actualCN);
+      pgSpeak('Received');
+      if(navigator.vibrate)navigator.vibrate(55);
+      if(!contMode){setTimeout(closeScan,700);}
+    }
+  } else if(scanCtx==='send'){
+    // SEND TO OFFICE — file wapas office bhej rahe hain
+    if(rows[idx].received!=='Received'){
+      showSC('❌ '+actualCN+' — pehle receive karo','#dc2626');
+      pgSpeak('Pehle receive karo');
+      if(navigator.vibrate)navigator.vibrate([100,50,100]);
+    } else if(rows[idx].sentToOffice==='Sent'){
+      showSC('ℹ️ '+actualCN+' — pehle se office bhej di','#d97706');
+      pgSpeak('Already sent to office');
+      if(navigator.vibrate)navigator.vibrate(80);
+    } else {
+      rows[idx].sentToOffice='Sent';
+      rows[idx].sentToOfficeDate=today;
+      rows[idx].location='office'; // office bhej di — steno/judge se hat gayi (#8)
+      setDateRows(activeDate,rows);
+      drawTable();updateDash();
+      showSC('✅ SENT TO OFFICE — '+actualCN,'#1a56db');
+      pgSpeak('Sent to office');
+      if(navigator.vibrate)navigator.vibrate(55);
+      if(!contMode){setTimeout(closeScan,700);}
+    }
+  } else if(scanCtx==='tosj'){
+    // SEND TO STENO/JUDGE — file judge ya steno ke paas bhej rahe hain (#7)
+    if(rows[idx].received!=='Received'){
+      showSC('❌ '+actualCN+' — pehle receive karo','#dc2626');
+      pgSpeak('Pehle receive karo');
+      if(navigator.vibrate)navigator.vibrate([100,50,100]);
+    } else if(rows[idx].sentToOffice==='Sent'){
+      showSC('ℹ️ '+actualCN+' — office bhej di, steno/judge nahi bhej sakte','#d97706');
+      pgSpeak('Already sent to office');
+      if(navigator.vibrate)navigator.vibrate(80);
+    } else {
+      // Location prompt — steno ya judge
+      _cdCN=actualCN;
+      if(!contMode){
+        setTimeout(()=>{closeScan();setTimeout(()=>pgShowLocationPrompt(actualCN),300);},500);
+      }else{
+        pgShowLocationPrompt(actualCN);
+      }
+    }
+  }
+}
+function showSC(msg,color){
+  const c=document.getElementById('scan-card');
+  c.textContent=msg;c.style.background=color;c.style.color='#fff';c.style.display='block';
+  c.style.borderRadius='10px';c.style.padding='12px';c.style.fontWeight='700';c.style.fontSize='14px';
+  c.style.cursor='pointer';c.title='Tap to close';
+  c.onclick=()=>{c.style.display='none';c.onclick=null;};
+}
+
+// ══ MISMATCH MODAL ══
+function openMismatchModal(){
+  if(!activeDate)return;
+  const rows=getDateRows(activeDate);
+  const miss=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+  const list=document.getElementById('mismatchList');
+  if(!miss.length){list.innerHTML='<div style="text-align:center;padding:20px;color:var(--green);font-weight:700">✅ Koi mismatch nahi!</div>';return;}
+  list.innerHTML=miss.map(r=>`
+    <div class="miss-item">
+      <div class="miss-item-cn">${esc(r.caseno)}</div>
+      <div class="miss-item-party">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
+      <div class="miss-item-badge">Court ne SENT kiya — Peshgar ne Receive nahi ki</div>
+    </div>
+  `).join('');
+  document.getElementById('mismatchModal').classList.add('on');
+}
+function closeMismatchModal(){document.getElementById('mismatchModal').classList.remove('on');}
+
+// ══ STENO MODAL ══
+// ══ EXPORT EXCEL ══
+function exportExcel(){
+  if(!activeDate){showToast('⚠️ Date select karo','w');return;}
+  const rows=getDateRows(activeDate);
+  if(!rows.length){showToast('⚠️ Koi data nahi','w');return;}
+  const headers=['Sr.No','Case No','Party Name','U/S','PS','Court Sent','Received','Recv Date','Sent to Office','Location','Remark'];
+  const data=rows.map(r=>[r.srno,r.caseno,r.partyname,r.section,r.ps,r.sentStatus,r.received,r.receiveddate,r.sentToOffice,r.location||'office',r.remark]);
+  const ws=XLSX.utils.aoa_to_sheet([headers,...data]);
+  ws['!cols']=[6,18,28,16,14,10,12,13,14,12,30].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Peshgar Data');
+  XLSX.writeFile(wb,'Peshgar_'+activeDate+'.xlsx');
+  showToast('✅ Excel download ho gayi!');
+}
+
+// ══ BACKUP ══
+function exportBackup(){
+  const bk={exportedAt:new Date().toISOString(),appVersion:'1.0',data:pData};
+  const blob=new Blob([JSON.stringify(bk,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='PeshgarBackup_'+new Date().toISOString().split('T')[0]+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  showMsg('backupMsg','✅ Backup download ho gayi!','s-ok');
+}
+function importBackup(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const bk=JSON.parse(e.target.result);
+      if(!bk.data||!bk.data.dates){showMsg('backupMsg','❌ Invalid backup file','s-err');return;}
+      pData=bk.data;saveData();loadData();
+      showMsg('backupMsg','✅ Restore ho gaya!','s-ok');showToast('✅ Backup restore ho gaya!');
+    }catch(err){showMsg('backupMsg','❌ Error: '+err.message,'s-err');}
+  };
+  reader.readAsText(file);
+  event.target.value='';
+}
+
+// ══ CLEAR DATA ══
+function clearAllData(){
+  if(!confirm('⚠️ Sab data delete ho jayega. Confirm?'))return;
+  pData={dates:[]};saveData();loadData();
+  showToast('🗑️ Sab data delete ho gaya');
+}
+
+// ══ FIREBASE ══
+const FB_KEY_LS='pm_fb_cfg';
+let _fbUnsub=null;
+function setSyncDot(state){
+  const d=document.getElementById('syncDot'),t=document.getElementById('syncTxt');
+  d.className=state;
+  const labels={ok:'Synced',busy:'Syncing',err:'Error',off:'Offline'};
+  t.textContent=labels[state]||'—';
+}
+function fbMsg(msg,cls){showMsg('fbMsg',msg,cls);}
+
+function fbConnect(){
+  const apiKey=(document.getElementById('fbKey').value||'').trim();
+  const aid=(document.getElementById('fbAppId').value||'').trim();
+  if(!apiKey||!aid){fbMsg('❌ API Key aur App ID zaroori hain','s-err');return;}
+  const pid=(document.getElementById('fbPid').value||'').trim()||'court-file-system';
+  const cfg={apiKey,appId:aid,projectId:pid,authDomain:pid+'.firebaseapp.com',storageBucket:pid+'.appspot.com'};
+  localStorage.setItem(FB_KEY_LS,JSON.stringify(cfg));
+  fbInit(cfg);
+}
+function fbDisconnect(){
+  localStorage.removeItem(FB_KEY_LS);
+  _fbDb=null;setSyncDot('off');fbMsg('Firebase disconnect ho gaya','s-info');
+}
+async function fbInit(cfg){
+  try{
+    if(firebase.apps.length)await Promise.all(firebase.apps.map(a=>a.delete()));
+    firebase.initializeApp(cfg);
+    _fbDb=firebase.firestore();
+    setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
+    fbStartListen();
+  }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
+}
+function fbStartListen(){
+  if(!_fbDb)return;
+  if(_fbUnsub)_fbUnsub();
+  // Listen to all cfm date keys — when court manager updates, pull automatically
+  _fbUnsub=_fbDb.collection('cfm').onSnapshot(snap=>{
+    setSyncDot('ok');
+    let matched=0,skipped=0;
+    snap.forEach(doc=>{
+      const key=doc.id;
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key)){skipped++;return;}
+      const date=key.split('_')[0];
+      const d=doc.data();
+      if(!d||!d.data||!Array.isArray(d.data)){skipped++;return;}
+      matched++;
+      mergeFbData(date,d.data);
+    });
+    if(snap.size===0){
+      fbMsg('⚠️ Firebase connected par "cfm" collection KHALI hai. Court Manager mein "Sabhi Data Push Karo" dabao.','s-warn');
+    }else if(matched===0){
+      fbMsg('⚠️ '+snap.size+' docs mile par koi date format match nahi hua','s-warn');
+    }
+  },err=>{
+    setSyncDot('err');
+    fbMsg('❌ Firebase read error: '+err.message+' — Project ID ya Firestore rules check karo','s-err');
+    showToast('❌ Firebase: '+err.message,'d');
+  });
+}
+function mergeFbData(date,fbRows){
+  // Get or create local date
+  let localRows=getDateRows(date);
+  const localMap=new Map(localRows.map(r=>[String(r.caseno).toUpperCase(),r]));
+  let changed=false;
+
+  fbRows.forEach(fr=>{
+    const cn=String(fr.caseno||'').toUpperCase().trim();
+    if(!cn)return;
+    const existing=localMap.get(cn);
+    const newSentStatus=fr.sent==='Sent'?'Sent':'';
+    if(existing){
+      if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
+      // Also merge partyname/section/ps if blank
+      if(!existing.partyname&&fr.partyname){existing.partyname=fr.partyname;changed=true;}
+      if(!existing.section&&fr.section){existing.section=fr.section;changed=true;}
+      if(!existing.ps&&fr.ps){existing.ps=fr.ps;changed=true;}
+    } else {
+      // New case not in local — add it
+      localRows.push({
+        srno:String(localRows.length+1),
+        caseno:cn,
+        partyname:fr.partyname||'',
+        section:fr.section||'',
+        ps:fr.ps||'',
+        sentStatus:newSentStatus,
+        remark:fr.remark||'',
+        received:'',receiveddate:'',
+        sentToOffice:'',sentToOfficeDate:'',
+        location:'office',
+      });
+      changed=true;
+    }
+  });
+
+  if(changed){
+    setDateRows(date,localRows);
+    // Auto-select latest date if none selected
+    if(!activeDate){
+      const allDates=(pData.dates||[]).map(d=>d.date).sort().reverse();
+      if(allDates.length)selectDate(allDates[0]);
+    } else if(date===activeDate){
+      drawTable();updateDash();
+    }
+    const newSentCount=localRows.filter(r=>r.sentStatus==='Sent').length;
+    showToast('🔄 Court Manager se update: '+fmtDateLabel(date)+' ('+newSentCount+' sent)');
+  }
+}
+async function fbPullData(){
+  if(!_fbDb){fbMsg('⚠️ Firebase connect nahi hai','s-warn');return;}
+  fbMsg('🔄 Data pull ho raha hai...','s-info');
+  setSyncDot('busy');
+  try{
+    const snap=await _fbDb.collection('cfm').get();
+    let matched=0;
+    snap.forEach(doc=>{
+      const key=doc.id;
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))return;
+      const date=key.split('_')[0];
+      const d=doc.data();
+      if(!d||!d.data||!Array.isArray(d.data))return;
+      matched++;
+      mergeFbData(date,d.data);
+    });
+    // Auto-select latest date after pull
+    if(!activeDate&&pData.dates.length){
+      const latest=pData.dates.map(d=>d.date).sort().reverse()[0];
+      selectDate(latest);
+    }
+    setSyncDot('ok');
+    if(snap.size===0){
+      fbMsg('⚠️ "cfm" collection KHALI hai! Court Manager → Firebase → "Sabhi Data Push Karo" dabao pehle.','s-warn');
+      showToast('⚠️ Firebase pe koi data nahi — pehle Court Manager se push karo','w');
+    }else{
+      fbMsg('✅ '+snap.size+' docs mile, '+matched+' dates import hui','s-ok');
+      showToast('✅ '+matched+' dates ka data aa gaya!');
+    }
+  }catch(e){setSyncDot('err');fbMsg('❌ Pull fail: '+e.message,'s-err');}
+}
+function tryAutoConnectFB(){
+  const cfg=JSON.parse(localStorage.getItem(FB_KEY_LS)||'null');
+  if(!cfg)return;
+  document.getElementById('fbKey').value=cfg.apiKey||'';
+  document.getElementById('fbAppId').value=cfg.appId||'';
+  document.getElementById('fbPid').value=cfg.projectId||'';
+  fbInit(cfg);
+}
+
+// Close modals on backdrop click
+document.getElementById('caseDetailModal').addEventListener('click',function(e){if(e.target===this)closeCaseDetail();});
+document.getElementById('mismatchModal').addEventListener('click',function(e){if(e.target===this)closeMismatchModal();});
+document.getElementById('stenoModal').addEventListener('click',function(e){if(e.target===this)closeStenoModal();});
+</script>
+</body>
+</html>
