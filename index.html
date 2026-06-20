@@ -823,16 +823,40 @@ function setDateRows(date,rows){
 
 // Peshgar status push — debounced, CM isko padhke mismatch dikhata hai
 let _pgPushTimer=null;
+let _pgPendingDates=new Set(); // offline mein jo dates push hone hain
 function pgSchedulePush(date){
-  if(!_fbDb)return;
+  _pgPendingDates.add(date); // hamesha queue mein daalo
   clearTimeout(_pgPushTimer);
-  _pgPushTimer=setTimeout(async()=>{
+  _pgPushTimer=setTimeout(()=>flushPgPush(),1500);
+}
+async function flushPgPush(){
+  if(!_fbDb||!navigator.onLine)return; // net/firebase nahi — queue mein rehne do
+  const dates=[..._pgPendingDates];
+  for(const date of dates){
     try{
       const rows=getDateRows(date);
       const slim=rows.map(r=>({caseno:r.caseno,received:r.received||'',sentToOffice:r.sentToOffice||'',location:r.location||''}));
       await _fbDb.collection('peshgar').doc(date).set({data:slim,at:Date.now()});
-    }catch(e){console.warn('pgPush:',e);}
-  },1500);
+      _pgPendingDates.delete(date); // successfully pushed
+    }catch(e){console.warn('pgPush retry pending:',e);}
+  }
+}
+// Net wapas aane par pending push auto-flush
+window.addEventListener('online',()=>{
+  showToast('📡 Net wapas aa gaya — pending data sync ho raha hai...','w');
+  setTimeout(()=>flushPgPush(),800);
+});
+// CONTINUOUS SYNC — har 30 second mein current date push karo (net connected hai to sync hota rahe)
+let _pgPeriodicSync=null;
+function startPeriodicSync(){
+  if(_pgPeriodicSync)clearInterval(_pgPeriodicSync);
+  _pgPeriodicSync=setInterval(()=>{
+    if(_fbDb&&navigator.onLine&&activeDate){
+      // Current date ko queue mein daalo aur push karo
+      _pgPendingDates.add(activeDate);
+      flushPgPush();
+    }
+  },30000); // 30 seconds
 }
 
 // ══ EXCEL UPLOAD (WhatsApp file) ══
@@ -965,10 +989,11 @@ function updateDash(){
   document.getElementById('stenoCount').textContent=sjAllDates+' files';
   document.getElementById('stenoBanner').classList.toggle('show',sjAllDates>0);
 
-  // Filter chips
-  const pending=rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
-  const elAll=document.getElementById('fc-all'); if(elAll)elAll.textContent=total;
-  const elPend=document.getElementById('fc-pending'); if(elPend)elPend.textContent=pending.length;
+  // Filter chips — All = SAARI rows, CM Sent = sentStatus Sent
+  const allRowsCount=rows.length; // All = poora total (saari files)
+  const cmSentCount=rows.filter(r=>r.sentStatus==='Sent').length; // CM Sent = court ne jo bheji
+  const elAll=document.getElementById('fc-all'); if(elAll)elAll.textContent=allRowsCount;
+  const elPend=document.getElementById('fc-pending'); if(elPend)elPend.textContent=cmSentCount;
   const elRcv=document.getElementById('fc-rcv'); if(elRcv)elRcv.textContent=rcv;
   const elMiss=document.getElementById('fc-miss'); if(elMiss)elMiss.textContent=miss.length;
   const elSteno=document.getElementById('fc-steno'); if(elSteno)elSteno.textContent=steno.length;
@@ -1164,7 +1189,6 @@ function openCaseDetail(cn){
     <div class="cd-row"><span class="cd-key">Court Status</span><span class="cd-val">${r.sentStatus==='Sent'?'✓ Sent by Court':'—'}</span></div>
     <div class="cd-row"><span class="cd-key">Peshgar Recv</span><span class="cd-val">${r.received==='Received'?'✓ Received ('+fmtD(r.receiveddate)+')':'Not received'}</span></div>
     <div class="cd-row"><span class="cd-key">Sent to Office</span><span class="cd-val">${r.sentToOffice==='Sent'?'✓ Sent ('+fmtD(r.sentToOfficeDate)+')':'Not sent'}</span></div>
-    <div class="cd-row"><span class="cd-key">Location</span><span class="cd-val">${locLabel(r.location)}</span></div>
   `;
   if(isMiss)infoHtml=`<div style="background:#fee2e2;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:700;color:var(--red)">⚠️ MISMATCH — Court ne bheja par receive nahi ki</div>`+infoHtml;
   document.getElementById('cd-info').innerHTML=infoHtml;
@@ -1210,7 +1234,7 @@ function updateField(date,cn,field,val){
 // ══ QR SCANNER ══
 async function startScan(ctx){
   if(!activeDate){showToast('⚠️ Pehle date select karo','w');return;}
-  // #1 — Internet + Firebase guard
+  // Peshgar app ONLINE MUST hai — net + Firebase zaroori
   if(!navigator.onLine){showToast('📡 Internet nahi hai! Peshgar app sirf online chalti hai.','d');return;}
   if(!_fbDb){showToast('☁️ Firebase connect nahi hai! Pehle sync karo.','d');return;}
   scanCtx=ctx;contMode=false;scanLast='';scanCool=false;
@@ -1520,6 +1544,7 @@ async function fbInit(cfg){
     _fbDb=firebase.firestore();
     setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
     fbStartListen();
+    startPeriodicSync(); // continuous sync chालू karo
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
 function fbStartListen(){
