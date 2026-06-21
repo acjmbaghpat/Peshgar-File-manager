@@ -1292,12 +1292,16 @@ function pgMatchCase(a,b){
   const au=String(a||'').toUpperCase().trim();
   const bu=String(b||'').toUpperCase().trim();
   if(au===bu)return true;
-  // Level 2: normalized (remove non-alphanumeric)
+  // Number-group guard: digit-groups alag hon to match nahi (12/3/2020 vs 123/2020 collision)
+  const numGroupsOf=s=>String(s).toUpperCase().replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).join(',');
+  const aNG=numGroupsOf(a),bNG=numGroupsOf(b);
+  const ngDiffer=(aNG!==bNG&&aNG!==''&&bNG!=='');
+  // Level 2: normalized (remove non-alphanumeric) — sirf jab number-groups same hon
   const an=au.replace(/[^A-Z0-9]/g,'');
   const bn=bu.replace(/[^A-Z0-9]/g,'');
-  if(an===bn)return true;
+  if(an===bn&&!ngDiffer)return true;
   // Level 3: contains with length ratio (avoid false positives)
-  if(an.length>=6&&bn.length>=6){
+  if(!ngDiffer&&an.length>=6&&bn.length>=6){
     const ratio=Math.min(an.length,bn.length)/Math.max(an.length,bn.length);
     if(ratio>=0.7){
       const shorter=an.length<=bn.length?an:bn;
