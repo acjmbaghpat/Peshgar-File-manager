@@ -1293,9 +1293,13 @@ function pgMatchCase(a,b){
   const bu=String(b||'').toUpperCase().trim();
   if(au===bu)return true;
   // Number-group guard: digit-groups alag hon to match nahi (12/3/2020 vs 123/2020 collision)
-  const numGroupsOf=s=>String(s).toUpperCase().replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).join(',');
+  // parseInt se leading zeros ignore (CC/01 = CC/1)
+  const numGroupsOf=s=>String(s).toUpperCase().replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).map(n=>parseInt(n,10)).join(',');
   const aNG=numGroupsOf(a),bNG=numGroupsOf(b);
   const ngDiffer=(aNG!==bNG&&aNG!==''&&bNG!=='');
+  // Canonical match: letters + numbers(leading-zero stripped) — CC/01/2024 = CC/1/2024
+  const canonOf=s=>{const up=String(s).toUpperCase();return up.replace(/[^A-Z]/g,'')+'|'+numGroupsOf(s);};
+  if(canonOf(a)===canonOf(b)&&canonOf(a)!=='|')return true;
   // Level 2: normalized (remove non-alphanumeric) — sirf jab number-groups same hon
   const an=au.replace(/[^A-Z0-9]/g,'');
   const bn=bu.replace(/[^A-Z0-9]/g,'');
