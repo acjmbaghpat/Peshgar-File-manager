@@ -1020,8 +1020,67 @@ function getFilteredRows(){
   return rows;
 }
 
+// ════ CFM jaisa: pichli date se sent-but-not-received files flag karo ════
+// Jo files CFM mein highlight hui (sent par received nahi), wahi Peshgar mein bhi highlight
+function markPgPendingFromPrevious(){
+  try{
+    if(!activeDate||!pData||!pData.dates)return;
+    const today=new Date();today.setHours(0,0,0,0);
+    // Saari dates ke keys (date string) — sorted
+    const allDates=pData.dates.map(d=>d.date).filter(Boolean);
+    // Pehle: har caseno jo kisi bhi date pe RECEIVED hui
+    const receivedAnywhere=new Set();
+    pData.dates.forEach(d=>{
+      (d.rows||[]).forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(cn&&r.received==='Received')receivedAnywhere.add(cn);
+      });
+    });
+    // Ab: har caseno jo kisi PICHLI date pe SENT (sentStatus='Sent') hui par received nahi
+    const pendingMap={};
+    pData.dates.forEach(d=>{
+      if(d.date===activeDate)return; // current date skip
+      // Sirf pichli dates (current se purani)
+      const dt=new Date(d.date+'T00:00:00');dt.setHours(0,0,0,0);
+      const actDt=new Date(activeDate+'T00:00:00');actDt.setHours(0,0,0,0);
+      if(dt>=actDt)return; // future/current skip
+      (d.rows||[]).forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(!cn)return;
+        if(r.sentStatus!=='Sent')return; // sirf SENT files (sent hi nahi hui to skip)
+        if(receivedAnywhere.has(cn))return; // kahin received ho gayi
+        const daysDiff=Math.floor((today-dt)/86400000);
+        const ex=pendingMap[cn];
+        if(!ex||daysDiff>ex.daysDiff){
+          pendingMap[cn]={workDate:d.date,daysDiff:daysDiff};
+        }
+      });
+    });
+    // Current date ke rows pe flag lagao
+    const curRows=getDateRows(activeDate);
+    curRows.forEach(r=>{
+      const cn=String(r.caseno||'').trim().toUpperCase();
+      // Current mein already received hai to flag nahi
+      if(r.received==='Received'){r._pendingPrev=null;return;}
+      let match=pendingMap[cn];
+      if(!match){
+        // caseMatch fallback (leading zero/format safe)
+        for(const pk in pendingMap){
+          if(pgMatchCase(pk,r.caseno)){match=pendingMap[pk];break;}
+        }
+      }
+      if(match){
+        r._pendingPrev={workDate:match.workDate,daysDiff:match.daysDiff,overdue:match.daysDiff>=7};
+      }else{
+        r._pendingPrev=null;
+      }
+    });
+  }catch(e){console.error('markPgPendingFromPrevious:',e);}
+}
+
 function drawTable(){
   const tb=document.getElementById('fileTable');
+  markPgPendingFromPrevious(); // CFM jaisa pending highlight compute karo
   const rows=getFilteredRows();
   if(!rows.length){
     tb.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--mu);font-size:13px;font-weight:500">${activeDate?'Koi file nahi mili':'Pehle date select karo'}</td></tr>`;
@@ -1031,6 +1090,8 @@ function drawTable(){
     const isMiss=r.sentStatus==='Sent'&&r.received!=='Received';
     const isSteno=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno';
     const isJudge=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge';
+    // Pichli date se pending (CFM jaisa highlight)
+    const pp=r._pendingPrev;
     let statusBadge='';
     if(r.sentToOffice==='Sent')statusBadge='<span class="badge b-sent">✓ Sent</span>';
     else if(isJudge)statusBadge='<span class="badge b-judge">⚖️ Judge</span>';
@@ -1038,11 +1099,16 @@ function drawTable(){
     else if(r.received==='Received')statusBadge='<span class="badge b-rcv">✓ Rcvd</span>';
     else if(isMiss)statusBadge='<span class="badge b-miss">⚠ Miss</span>';
     else statusBadge='<span class="badge" style="background:#f0f3f9;color:var(--mu)">Pending</span>';
+    // Pending-from-previous badge (CFM jaisa)
+    const ppBadge=pp?(pp.overdue
+      ?'<span style="display:inline-block;background:#dc2626;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date se '+pp.daysDiff+' din pending — OVERDUE">⚠ '+pp.daysDiff+'d OVERDUE</span>'
+      :'<span style="display:inline-block;background:#d97706;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date se sent, abhi received nahi">⚠ PENDING</span>'):'';
+    const ppRowStyle=pp?(pp.overdue?'background:#fef2f2;border-left:4px solid #dc2626':'background:#fff7ed;border-left:4px solid #d97706'):'';
 
     const cne=esc(r.caseno).replace(/'/g,"\\'");
-    return`<tr class="${isMiss?'miss-row':''}" id="row_${sId(r.caseno)}">
+    return`<tr class="${isMiss?'miss-row':''}" id="row_${sId(r.caseno)}"${ppRowStyle?(' style="'+ppRowStyle+'"'):''}>
       <td><span class="td-meta">${esc(r.srno)}</span></td>
-      <td><span class="td-cn" onclick="openCaseDetail('${cne}')">${esc(r.caseno)}</span></td>
+      <td><span class="td-cn" onclick="openCaseDetail('${cne}')">${esc(r.caseno)}</span>${ppBadge}</td>
       <td><span class="td-party">${esc(r.partyname||'')}</span></td>
       <td><span class="td-meta">${esc(r.section||'')}</span></td>
       <td><span class="td-meta">${esc(r.ps||'')}</span></td>
