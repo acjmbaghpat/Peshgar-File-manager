@@ -102,7 +102,7 @@ button{cursor:pointer}
 .cnt{padding:14px;max-width:1000px;margin:0 auto}
 
 /* ══ STATS ══ */
-.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:8px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
 .stat-card{background:var(--sur);border-radius:10px;padding:10px 10px;border:1px solid rgba(221,229,244,.6);box-shadow:var(--sh1);position:relative;overflow:hidden}
 .stat-card::after{content:'';position:absolute;right:-6px;bottom:-6px;width:40px;height:40px;border-radius:50%;opacity:.06;background:var(--blue)}
 .stat-icon{font-size:13px;margin-bottom:2px;display:block}
@@ -423,6 +423,11 @@ button:active{transform:scale(.97)}
         <span class="stat-val" id="st-sj">0</span>
         <span class="stat-lbl">Steno/Judge</span>
       </div>
+      <div class="stat-card miss-col" onclick="openPgOverdueModal()" style="cursor:pointer">
+        <span class="stat-icon">⏰</span>
+        <span class="stat-val" id="st-overdue">0</span>
+        <span class="stat-lbl">Overdue 7d+</span>
+      </div>
     </div>
 
     <!-- Search + Filter Chips -->
@@ -638,6 +643,15 @@ button:active{transform:scale(.97)}
   </div>
 </div>
 
+<div class="modal center" id="pgOverdueModal">
+  <div class="msh" style="max-width:460px">
+    <div class="mt">⏰ Overdue Files (7+ din)</div>
+    <div class="msub">Court Manager se aayi list — sent par abhi tak received nahi. Sirf dekhne ke liye.</div>
+    <div id="pgOverdueList"></div>
+    <button class="btn neutral" onclick="closePgOverdueModal()">✕ Band Karo</button>
+  </div>
+</div>
+
 <div id="bot-nav"></div><!-- spacer -->
 
 <script>
@@ -775,7 +789,12 @@ async function loadData(){
     try{const d=JSON.parse(localStorage.getItem(DATA_KEY)||'null');if(d&&d.dates)pData=d;}catch(e2){}
   }
   renderDatePills();
-  if(pData.dates.length){selectDate(pData.dates[pData.dates.length-1].date);}
+  if(pData.dates.length){
+    // Latest date select karo — array ka last element nahi (woh sorted nahi hota)
+    // Sabhi dates sort karke sabse nayi date pakdo
+    const sortedDates=pData.dates.map(d=>d.date).filter(Boolean).sort();
+    if(sortedDates.length)selectDate(sortedDates[sortedDates.length-1]);
+  }
   updateDash();
 }
 
@@ -979,6 +998,18 @@ function updateDash(){
   document.getElementById('st-send').textContent=sent;
   document.getElementById('st-miss').textContent=miss.length;
   const sjEl=document.getElementById('st-sj'); if(sjEl)sjEl.textContent=sjAllDates;
+  // Overdue count — CFM ka flag (_pendingPrev.overdue), saari dates se, unique caseno
+  // Sirf wahi jo abhi received nahi (CFM ne overdue mark kiya)
+  const ovSet=new Set();
+  (pData.dates||[]).forEach(d=>{
+    (d.rows||[]).forEach(r=>{
+      if(r.received==='Received')return;
+      if(r._pendingPrev&&r._pendingPrev.overdue){
+        ovSet.add(String(r.caseno||'').trim().toUpperCase());
+      }
+    });
+  });
+  const ovEl=document.getElementById('st-overdue'); if(ovEl)ovEl.textContent=ovSet.size;
 
   // Mismatch Banner
   document.getElementById('mismatchCount').textContent=miss.length+' files';
@@ -1020,67 +1051,8 @@ function getFilteredRows(){
   return rows;
 }
 
-// ════ CFM jaisa: pichli date se sent-but-not-received files flag karo ════
-// Jo files CFM mein highlight hui (sent par received nahi), wahi Peshgar mein bhi highlight
-function markPgPendingFromPrevious(){
-  try{
-    if(!activeDate||!pData||!pData.dates)return;
-    const today=new Date();today.setHours(0,0,0,0);
-    // Saari dates ke keys (date string) — sorted
-    const allDates=pData.dates.map(d=>d.date).filter(Boolean);
-    // Pehle: har caseno jo kisi bhi date pe RECEIVED hui
-    const receivedAnywhere=new Set();
-    pData.dates.forEach(d=>{
-      (d.rows||[]).forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(cn&&r.received==='Received')receivedAnywhere.add(cn);
-      });
-    });
-    // Ab: har caseno jo kisi PICHLI date pe SENT (sentStatus='Sent') hui par received nahi
-    const pendingMap={};
-    pData.dates.forEach(d=>{
-      if(d.date===activeDate)return; // current date skip
-      // Sirf pichli dates (current se purani)
-      const dt=new Date(d.date+'T00:00:00');dt.setHours(0,0,0,0);
-      const actDt=new Date(activeDate+'T00:00:00');actDt.setHours(0,0,0,0);
-      if(dt>=actDt)return; // future/current skip
-      (d.rows||[]).forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(!cn)return;
-        if(r.sentStatus!=='Sent')return; // sirf SENT files (sent hi nahi hui to skip)
-        if(receivedAnywhere.has(cn))return; // kahin received ho gayi
-        const daysDiff=Math.floor((today-dt)/86400000);
-        const ex=pendingMap[cn];
-        if(!ex||daysDiff>ex.daysDiff){
-          pendingMap[cn]={workDate:d.date,daysDiff:daysDiff};
-        }
-      });
-    });
-    // Current date ke rows pe flag lagao
-    const curRows=getDateRows(activeDate);
-    curRows.forEach(r=>{
-      const cn=String(r.caseno||'').trim().toUpperCase();
-      // Current mein already received hai to flag nahi
-      if(r.received==='Received'){r._pendingPrev=null;return;}
-      let match=pendingMap[cn];
-      if(!match){
-        // caseMatch fallback (leading zero/format safe)
-        for(const pk in pendingMap){
-          if(pgMatchCase(pk,r.caseno)){match=pendingMap[pk];break;}
-        }
-      }
-      if(match){
-        r._pendingPrev={workDate:match.workDate,daysDiff:match.daysDiff,overdue:match.daysDiff>=7};
-      }else{
-        r._pendingPrev=null;
-      }
-    });
-  }catch(e){console.error('markPgPendingFromPrevious:',e);}
-}
-
 function drawTable(){
   const tb=document.getElementById('fileTable');
-  markPgPendingFromPrevious(); // CFM jaisa pending highlight compute karo
   const rows=getFilteredRows();
   if(!rows.length){
     tb.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--mu);font-size:13px;font-weight:500">${activeDate?'Koi file nahi mili':'Pehle date select karo'}</td></tr>`;
@@ -1090,8 +1062,8 @@ function drawTable(){
     const isMiss=r.sentStatus==='Sent'&&r.received!=='Received';
     const isSteno=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno';
     const isJudge=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge';
-    // Pichli date se pending (CFM jaisa highlight)
-    const pp=r._pendingPrev;
+    // CFM se aaya pending flag — par agar Peshgar mein received ho gayi to flag suppress
+    const pp=(r.received==='Received')?null:(r._pendingPrev||null);
     let statusBadge='';
     if(r.sentToOffice==='Sent')statusBadge='<span class="badge b-sent">✓ Sent</span>';
     else if(isJudge)statusBadge='<span class="badge b-judge">⚖️ Judge</span>';
@@ -1185,6 +1157,52 @@ function pgSetLocFromPrompt(loc){
   pgSpeak(loc==='steno'?'Steno':'Judge');
   showToast(loc==='steno'?'🖊️ Steno ke paas':'⚖️ Judge ke paas');
 }
+
+// ════ Overdue files — READ ONLY (CFM se aayi list, sirf dekhne ke liye) ════
+// Peshgar koi edit/reminder/dispose nahi kar sakta — sirf figure + naam
+function openPgOverdueModal(){
+  // CFM ke flag (_pendingPrev.overdue) wali files — saari dates se, unique
+  const seen=new Set();
+  let files=[];
+  (pData.dates||[]).forEach(d=>{
+    (d.rows||[]).forEach(r=>{
+      if(r.received==='Received')return; // received ho gayi to nahi
+      if(r._pendingPrev&&r._pendingPrev.overdue){
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(seen.has(cn))return; // duplicate skip
+        seen.add(cn);
+        files.push({caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:r._pendingPrev.daysDiff||0,workDate:r._pendingPrev.workDate||''});
+      }
+    });
+  });
+  files.sort((a,b)=>b.daysDiff-a.daysDiff); // most overdue first
+
+  let h='';
+  if(!files.length){
+    h='<div style="text-align:center;padding:24px;color:var(--mu);font-size:13px">Koi overdue file nahi</div>';
+  }else{
+    h='<div style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:600">Total '+files.length+' files overdue</div>';
+    files.forEach(r=>{
+      const days=r.daysDiff;
+      const urgColor=days>=30?'#dc2626':days>=15?'#f59e0b':'#d97706';
+      const wdDisplay=r.workDate?r.workDate.split('-').reverse().join('-'):'—';
+      // READ-ONLY — sirf naam, party, din. Koi button/input/edit nahi.
+      h+=`<div style="background:#fff;border:1px solid #e5e7eb;border-left:4px solid ${urgColor};border-radius:9px;padding:10px 12px;margin-bottom:7px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+            <div style="font-size:11px;color:var(--mu);margin-top:3px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}${r.ps?' · '+esc(r.ps):''}</div>
+            <div style="font-size:10px;color:var(--mu);margin-top:3px">📅 ${wdDisplay}</div>
+          </div>
+          <span style="background:${urgColor};color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;flex-shrink:0">${days} din</span>
+        </div>
+      </div>`;
+    });
+  }
+  document.getElementById('pgOverdueList').innerHTML=h;
+  document.getElementById('pgOverdueModal').classList.add('on');
+}
+function closePgOverdueModal(){document.getElementById('pgOverdueModal').classList.remove('on');}
 
 function openStenoModal(){
   // ALL dates se steno/judge files nikalo (req 7)
@@ -1565,7 +1583,10 @@ function importBackup(event){
       // UI seedha refresh karo — IDB se dobara read nahi (pData already correct hai)
       renderDatePills();
       activeDate=null;
-      if(pData.dates.length)selectDate(pData.dates[pData.dates.length-1].date);
+      if(pData.dates.length){
+        const sd=pData.dates.map(d=>d.date).filter(Boolean).sort();
+        if(sd.length)selectDate(sd[sd.length-1]);
+      }
       updateDash();
       showMsg('backupMsg','✅ Restore ho gaya!','s-ok');showToast('✅ Backup restore ho gaya!');
     }catch(err){showMsg('backupMsg','❌ Error: '+err.message,'s-err');}
@@ -1659,8 +1680,13 @@ function mergeFbData(date,fbRows){
     if(!cn)return;
     const existing=localMap.get(cn);
     const newSentStatus=fr.sent==='Sent'?'Sent':'';
+    // CFM ka pending-highlight flag (sent-but-not-received from previous date)
+    // Ye CFM ne calculate kiya — Peshgar bilkul wahi dikhayega (khud calculate nahi karega)
+    const cfmPending=fr._pendingPrev||null;
     if(existing){
       if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
+      // CFM ka pending flag copy karo (exact same files highlight)
+      existing._pendingPrev=cfmPending;
       // Also merge partyname/section/ps if blank
       if(!existing.partyname&&fr.partyname){existing.partyname=fr.partyname;changed=true;}
       if(!existing.section&&fr.section){existing.section=fr.section;changed=true;}
@@ -1678,6 +1704,7 @@ function mergeFbData(date,fbRows){
         received:'',receiveddate:'',
         sentToOffice:'',sentToOfficeDate:'',
         location:'office',
+        _pendingPrev:cfmPending,
       });
       changed=true;
     }
