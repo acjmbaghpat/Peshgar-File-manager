@@ -648,6 +648,7 @@ button:active{transform:scale(.97)}
     <div class="mt">⏰ Overdue Files (7+ din)</div>
     <div class="msub">Court Manager se aayi list — sent par abhi tak received nahi. Sirf dekhne ke liye.</div>
     <div id="pgOverdueList"></div>
+    <button class="btn primary" onclick="exportPgOverdue()" style="margin-bottom:8px">📥 Excel Download Karo</button>
     <button class="btn neutral" onclick="closePgOverdueModal()">✕ Band Karo</button>
   </div>
 </div>
@@ -998,18 +999,9 @@ function updateDash(){
   document.getElementById('st-send').textContent=sent;
   document.getElementById('st-miss').textContent=miss.length;
   const sjEl=document.getElementById('st-sj'); if(sjEl)sjEl.textContent=sjAllDates;
-  // Overdue count — CFM ka flag (_pendingPrev.overdue), saari dates se, unique caseno
-  // Sirf wahi jo abhi received nahi (CFM ne overdue mark kiya)
-  const ovSet=new Set();
-  (pData.dates||[]).forEach(d=>{
-    (d.rows||[]).forEach(r=>{
-      if(r.received==='Received')return;
-      if(r._pendingPrev&&r._pendingPrev.overdue){
-        ovSet.add(String(r.caseno||'').trim().toUpperCase());
-      }
-    });
-  });
-  const ovEl=document.getElementById('st-overdue'); if(ovEl)ovEl.textContent=ovSet.size;
+  // Overdue count — CFM jaisा exact calculation (CFM ke raw fields se)
+  const ovEl=document.getElementById('st-overdue');
+  if(ovEl)ovEl.textContent=getPgOverdueFiles().length;
 
   // Mismatch Banner
   document.getElementById('mismatchCount').textContent=miss.length+' files';
@@ -1058,12 +1050,15 @@ function drawTable(){
     tb.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--mu);font-size:13px;font-weight:500">${activeDate?'Koi file nahi mili':'Pehle date select karo'}</td></tr>`;
     return;
   }
+  // CFM jaisा pending/overdue map — saari dates se (sent-but-not-received)
+  const pendMap=getPgPendingMap();
   tb.innerHTML=rows.map(r=>{
     const isMiss=r.sentStatus==='Sent'&&r.received!=='Received';
     const isSteno=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='steno';
     const isJudge=r.received==='Received'&&r.sentToOffice!=='Sent'&&r.location==='judge';
-    // CFM se aaya pending flag — par agar Peshgar mein received ho gayi to flag suppress
-    const pp=(r.received==='Received')?null:(r._pendingPrev||null);
+    // Pending/overdue — CFM jaisा calc se (Peshgar mein received ho to suppress)
+    const cn=String(r.caseno||'').trim().toUpperCase();
+    const pp=(r.received==='Received')?null:(pendMap[cn]||null);
     let statusBadge='';
     if(r.sentToOffice==='Sent')statusBadge='<span class="badge b-sent">✓ Sent</span>';
     else if(isJudge)statusBadge='<span class="badge b-judge">⚖️ Judge</span>';
@@ -1088,6 +1083,41 @@ function drawTable(){
     </tr>`;
   }).join('');
 }
+// Pending/overdue map (caseno → {daysDiff,overdue}) — CFM jaisा exact, saari dates
+// Overdue = 7+ din, Pending = 7 din se kam (par pichli date se sent-not-received)
+function getPgPendingMap(){
+  try{
+    const today=new Date();today.setHours(0,0,0,0);
+    const receivedAnywhere=new Set();
+    (pData.dates||[]).forEach(d=>{
+      (d.rows||[]).forEach(r=>{
+        const c=String(r.caseno||'').trim().toUpperCase();
+        if(c&&(r._cfmReceived||r.received==='Received'))receivedAnywhere.add(c);
+      });
+    });
+    const map={};
+    (pData.dates||[]).forEach(d=>{
+      const datePart=d.date;
+      (d.rows||[]).forEach(r=>{
+        const c=String(r.caseno||'').trim().toUpperCase();
+        if(!c)return;
+        if(r._cfmDisposed)return;
+        const wasSent=(r._cfmSent===true)||(r._cfmSent===undefined&&r.sentStatus==='Sent');
+        if(!wasSent)return;
+        if(receivedAnywhere.has(c))return;
+        const sd=r._cfmSentdate;
+        const trackStr=(sd&&/^\d{4}-\d{2}-\d{2}$/.test(sd))?sd:datePart;
+        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
+        const daysDiff=Math.floor((today-td)/86400000);
+        if(daysDiff<0)return;
+        const ex=map[c];
+        if(!ex||daysDiff>ex.daysDiff){map[c]={daysDiff:daysDiff,overdue:daysDiff>=7};}
+      });
+    });
+    return map;
+  }catch(e){console.error('getPgPendingMap:',e);return {};}
+}
+
 
 function setFilter(f){
   activeFilter=f;
@@ -1158,24 +1188,55 @@ function pgSetLocFromPrompt(loc){
   showToast(loc==='steno'?'🖊️ Steno ke paas':'⚖️ Judge ke paas');
 }
 
-// ════ Overdue files — READ ONLY (CFM se aayi list, sirf dekhne ke liye) ════
-// Peshgar koi edit/reminder/dispose nahi kar sakta — sirf figure + naam
-function openPgOverdueModal(){
-  // CFM ke flag (_pendingPrev.overdue) wali files — saari dates se, unique
-  const seen=new Set();
-  let files=[];
-  (pData.dates||[]).forEach(d=>{
-    (d.rows||[]).forEach(r=>{
-      if(r.received==='Received')return; // received ho gayi to nahi
-      if(r._pendingPrev&&r._pendingPrev.overdue){
+// ════ CFM jaisा EXACT overdue calculation (CFM ke raw fields se) ════
+// CFM ka getAllOverdueFiles ka ditto — saari dates, sent-but-not-received, 7+ din
+// Returns [{caseno,partyname,section,ps,daysDiff,workDate}] — unique, most-overdue-first
+function getPgOverdueFiles(){
+  try{
+    const today=new Date();today.setHours(0,0,0,0);
+    // Pass 1: kahin bhi received (CFM ke hisaab se YA Peshgar ke hisaab se)
+    const receivedAnywhere=new Set();
+    (pData.dates||[]).forEach(d=>{
+      (d.rows||[]).forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
-        if(seen.has(cn))return; // duplicate skip
-        seen.add(cn);
-        files.push({caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:r._pendingPrev.daysDiff||0,workDate:r._pendingPrev.workDate||''});
-      }
+        if(!cn)return;
+        if(r._cfmReceived||r.received==='Received')receivedAnywhere.add(cn);
+      });
     });
-  });
-  files.sort((a,b)=>b.daysDiff-a.daysDiff); // most overdue first
+    // Pass 2: CFM ne SENT kiya par received nahi, 7+ din (CFM jaisा)
+    const caseMap={};
+    (pData.dates||[]).forEach(d=>{
+      const datePart=d.date;
+      (d.rows||[]).forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(!cn)return;
+        if(r._cfmDisposed)return; // CFM mein disposed
+        // CFM ne sent kiya? (raw flag, warna sentStatus fallback)
+        const wasSent=(r._cfmSent===true)||(r._cfmSent===undefined&&r.sentStatus==='Sent');
+        if(!wasSent)return;
+        if(receivedAnywhere.has(cn))return; // kahin received ho gayi
+        // Days — CFM ka sentdate (warna us date ka datePart)
+        const sd=r._cfmSentdate;
+        const trackStr=(sd&&/^\d{4}-\d{2}-\d{2}$/.test(sd))?sd:datePart;
+        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
+        const daysDiff=Math.floor((today-td)/86400000);
+        if(daysDiff<7)return; // 7 din se kam — overdue nahi
+        const ex=caseMap[cn];
+        if(!ex||daysDiff>ex.daysDiff){
+          caseMap[cn]={caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:daysDiff,workDate:datePart};
+        }
+      });
+    });
+    const result=Object.values(caseMap);
+    result.sort((a,b)=>b.daysDiff-a.daysDiff);
+    return result;
+  }catch(e){console.error('getPgOverdueFiles:',e);return [];}
+}
+
+// ════ Overdue files — READ ONLY (CFM se aayi list, sirf dekhne ke liye) ════
+// Peshgar koi edit/reminder/dispose nahi kar sakta — sirf figure + naam + download
+function openPgOverdueModal(){
+  const files=getPgOverdueFiles(); // CFM jaisा exact
 
   let h='';
   if(!files.length){
@@ -1203,6 +1264,21 @@ function openPgOverdueModal(){
   document.getElementById('pgOverdueModal').classList.add('on');
 }
 function closePgOverdueModal(){document.getElementById('pgOverdueModal').classList.remove('on');}
+
+// Overdue Excel download
+function exportPgOverdue(){
+  const files=getPgOverdueFiles();
+  if(!files.length){showToast('Koi overdue file nahi');return;}
+  const data=[['Case No','Party','Section','PS','Din Overdue','Date']];
+  files.forEach(r=>data.push([r.caseno,r.partyname||'',r.section||'',r.ps||'',r.daysDiff+' din',r.workDate||'']));
+  try{
+    const ws=XLSX.utils.aoa_to_sheet(data);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Overdue');
+    XLSX.writeFile(wb,'Overdue_Files_'+(activeDate||'all')+'.xlsx');
+    showToast('📥 '+files.length+' overdue files download');
+  }catch(e){showToast('❌ Download fail: '+e.message,'d');}
+}
 
 function openStenoModal(){
   // ALL dates se steno/judge files nikalo (req 7)
@@ -1680,13 +1756,18 @@ function mergeFbData(date,fbRows){
     if(!cn)return;
     const existing=localMap.get(cn);
     const newSentStatus=fr.sent==='Sent'?'Sent':'';
-    // CFM ka pending-highlight flag (sent-but-not-received from previous date)
-    // Ye CFM ne calculate kiya — Peshgar bilkul wahi dikhayega (khud calculate nahi karega)
-    const cfmPending=fr._pendingPrev||null;
+    // CFM ke raw fields — overdue khud calculate karne ke liye (CFM jaisa exact)
+    const cfmSent=fr.sent==='Sent';
+    const cfmSentdate=fr.sentdate||'';
+    const cfmReceived=fr.received==='Received';
+    const cfmDisposed=!!fr._disposed;
     if(existing){
       if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
-      // CFM ka pending flag copy karo (exact same files highlight)
-      existing._pendingPrev=cfmPending;
+      // CFM ke raw fields store karo (har sync pe update)
+      existing._cfmSent=cfmSent;
+      existing._cfmSentdate=cfmSentdate;
+      existing._cfmReceived=cfmReceived;
+      existing._cfmDisposed=cfmDisposed;
       // Also merge partyname/section/ps if blank
       if(!existing.partyname&&fr.partyname){existing.partyname=fr.partyname;changed=true;}
       if(!existing.section&&fr.section){existing.section=fr.section;changed=true;}
@@ -1704,7 +1785,10 @@ function mergeFbData(date,fbRows){
         received:'',receiveddate:'',
         sentToOffice:'',sentToOfficeDate:'',
         location:'office',
-        _pendingPrev:cfmPending,
+        _cfmSent:cfmSent,
+        _cfmSentdate:cfmSentdate,
+        _cfmReceived:cfmReceived,
+        _cfmDisposed:cfmDisposed,
       });
       changed=true;
     }
