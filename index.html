@@ -37,22 +37,7 @@
   /* ── Motion ── */
   --ease:cubic-bezier(.4,0,.2,1);--ease-out:cubic-bezier(.16,1,.3,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);
 }
-/* ═══ DARK MODE ═══ */
-html[data-theme="dark"]{
-  --navy:#1a2547;--navy2:#212e54;--navy3:#2a3a6e;
-  --bg:#0a0f1f;--bg2:#0d1326;--sur:#141b30;--sur2:#1a2238;--sur3:#202940;
-  --txt:#e8edf7;--txt2:#c0cce4;--mu:#8492b0;--bdr:#28324d;--bdr2:#222b42;
-  --blue:#4d82f5;--blueh:#3b73ed;--blue-soft:#1a2547;
-  --red:#f05252;--red-soft:#2a1618;
-  --green:#34d058;--green-soft:#16241a;
-  --amber:#f5a623;--amber-soft:#2a2010;
-  --teal:#22b8d4;--purple:#a06bf0;--purple-soft:#241a3a;
-  --glass-bg:rgba(20,27,48,.72);--glass-brd:rgba(255,255,255,.08);
-  --sh1:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.2);
-  --sh2:0 2px 8px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.25);
-  --sh3:0 8px 32px rgba(0,0,0,.5),0 16px 48px rgba(0,0,0,.3);
-  --sh-blue:0 4px 16px rgba(77,130,245,.35);--sh-navy:0 6px 22px rgba(0,0,0,.5);
-}
+
 html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:84px;background-image:radial-gradient(circle at 0% 0%,var(--bg2) 0%,transparent 50%),radial-gradient(circle at 100% 100%,var(--bg2) 0%,transparent 50%)}
 button,input,select,textarea{font-family:inherit}
 button{cursor:pointer}
@@ -340,8 +325,6 @@ button:active{transform:scale(.97)}
 #toast,.toast{backdrop-filter:blur(12px);box-shadow:var(--sh3)!important;border-radius:var(--r12)!important}
 
 /* Theme toggle spin */
-#themeToggle{transition:transform .4s var(--ease-spring)}
-#themeToggle:active{transform:rotate(180deg) scale(.9)}
 
 /* Reduced motion */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
@@ -363,6 +346,9 @@ button:active{transform:scale(.97)}
 
 <!-- HEADER -->
 <div id="app-hdr" style="display:none">
+  <div id="pgOfflineBanner" style="display:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;padding:8px 14px;font-size:12px;font-weight:600;text-align:center;letter-spacing:.2px">
+    📡 OFFLINE — Peshgar online-only hai. Received/location mark karne ke liye internet on karo (CFM ko turant pata chalega).
+  </div>
   <div class="hdr-top">
     <div class="hdr-brand">
       <div class="hdr-logo">📋</div>
@@ -382,7 +368,6 @@ button:active{transform:scale(.97)}
           style="border:none;background:transparent;font-size:11px;outline:none;color:#fff;font-weight:700;cursor:pointer;max-width:100px"
           onchange="addManualDate(this.value)">
       </label>
-      <button class="hdr-btn" id="themeToggle" onclick="toggleTheme()" title="Dark/Light Mode">🌙</button>
     </div>
   </div>
   <div id="tab-bar">
@@ -669,26 +654,28 @@ let activeFilter='all';
 let searchQ='';
 let _cdCN=null;
 let _fbDb=null;
+// ════════════════════════════════════════════════════
+//  PESHGAR ONLINE-ONLY GUARD
+//  Peshgar court reader ke liye hai — data modify (received/location/scan/upload)
+//  tabhi allow jab ONLINE + Firebase CONNECTED ho. Warna CFM ko real-time
+//  pata nahi chalega ki kaunsi file received hui / kya chal raha hai.
+// ════════════════════════════════════════════════════
+function pgOnlineGuard(actionName){
+  if(!navigator.onLine){
+    showToast('📡 Internet nahi hai! Peshgar online-only hai — '+(actionName||'ye kaam')+' ke liye net chahiye (taaki CFM ko turant pata chale).','d');
+    return false;
+  }
+  if(!_fbDb){
+    showToast('☁️ Firebase connect nahi hai! Settings mein jaake connect karo — tabhi CFM ko received/status pata chalega.','d');
+    return false;
+  }
+  return true;
+}
 let scanActive=false,scanStream=null,scanCtx='',contMode=false,scanLast='',scanCool=false;
 let scanDetector=null;
 
 // ═══ DARK / LIGHT THEME ═══
-function applyTheme(t){
-  document.documentElement.setAttribute('data-theme',t);
-  const btn=document.getElementById('themeToggle');
-  if(btn)btn.textContent=t==='dark'?'☀️':'🌙';
-  try{localStorage.setItem('pm_theme',t);}catch(e){}
-}
-function toggleTheme(){
-  const cur=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';
-  applyTheme(cur==='dark'?'light':'dark');
-  if(navigator.vibrate)navigator.vibrate(12);
-}
-(function(){
-  let saved='light';
-  try{saved=localStorage.getItem('pm_theme')||'light';}catch(e){}
-  applyTheme(saved);
-})();
+// (Dark/Night mode hata diya — sirf light theme)
 
 // ══ AUTH ══
 function doLogin(){
@@ -700,6 +687,7 @@ function doLogin(){
     document.getElementById('fabRow').style.display='flex';
     // pData load karo (IndexedDB se) Firebase connect SE PEHLE — taaki merge/push race na ho
     loadData().then(()=>tryAutoConnectFB());
+    pgUpdateOfflineBanner(); // offline banner state set karo
   } else {
     document.getElementById('lerr').textContent='❌ Galat password';
     setTimeout(()=>document.getElementById('lerr').textContent='',2000);
@@ -834,7 +822,7 @@ function getDateRows(date){
 }
 function setDateRows(date,rows){
   const idx=pData.dates.findIndex(x=>x.date===date);
-  if(idx===-1)pData.dates.push({date,rows});
+  if(idx===-1){pData.dates.push({date,rows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));} // BUG-23: sort for consistency
   else pData.dates[idx].rows=rows;
   saveData();
   pgSchedulePush(date); // Firebase pe received status push (CM mismatch ke liye)
@@ -864,12 +852,21 @@ async function flushPgPush(){
 window.addEventListener('online',()=>{
   showToast('📡 Net wapas aa gaya — pending data sync ho raha hai...','w');
   setTimeout(()=>flushPgPush(),800);
+  pgUpdateOfflineBanner();
 });
 window.addEventListener('offline',()=>{
   // Net gaya — sync dot off, user ko pata chale
   const d=document.getElementById('syncDot');if(d)d.className='off';
-  showToast('📵 Net nahi hai — offline mode (data local mein safe rahega)','w');
+  showToast('📵 Net nahi hai — offline mode (Peshgar online-only hai, received/location mark nahi hoga)','d');
+  pgUpdateOfflineBanner();
 });
+// Offline banner show/hide — online+firebase nahi to red banner dikhe
+function pgUpdateOfflineBanner(){
+  const b=document.getElementById('pgOfflineBanner');if(!b)return;
+  const offline=!navigator.onLine;
+  b.style.display=offline?'block':'none';
+  if(offline){b.textContent='📡 OFFLINE — Peshgar online-only hai. Received/location mark karne ke liye internet on karo (CFM ko turant pata chalega).';}
+}
 // CONTINUOUS SYNC — har 30 second mein current date push karo (net connected hai to sync hota rahe)
 let _pgPeriodicSync=null;
 function startPeriodicSync(){
@@ -885,8 +882,10 @@ function startPeriodicSync(){
 
 // ══ EXCEL UPLOAD (WhatsApp file) ══
 function uploadExcel(){
+  if(typeof XLSX==='undefined'){showMsg('uploadMsg','❌ Excel library load nahi hui — page reload karo','s-err');return;}
   const f=document.getElementById('excelFile').files[0];
   if(!f){showMsg('uploadMsg','⚠️ File select karo','s-warn');return;}
+  if(!pgOnlineGuard('Excel upload')){showMsg('uploadMsg','📡 Online hone par hi upload karo','s-warn');return;}
   const reader=new FileReader();
   reader.onload=e=>{
     try{
@@ -912,7 +911,9 @@ function uploadExcel(){
       // Try to detect date from filename
       const dateMatch=f.name.match(/(\d{4}-\d{2}-\d{2})/);
       const todayISO=new Date().toISOString().split('T')[0];
-      const importDate=dateMatch?dateMatch[1]:todayISO;
+      // BUG-19 fix: date valid hai? (2024-13-45 jaisa invalid skip karo)
+      const _isValidISO=(iso)=>{const d=new Date(iso+'T00:00:00');return !isNaN(d.getTime())&&iso===d.toISOString().split('T')[0];};
+      const importDate=(dateMatch&&_isValidISO(dateMatch[1]))?dateMatch[1]:todayISO;
 
       const existingRows=getDateRows(importDate);
       const existingMap=new Map(existingRows.map(r=>[String(r.caseno).toUpperCase(),r]));
@@ -1177,6 +1178,7 @@ function pgShowLocationPrompt(cn){
 function pgSetLocFromPrompt(loc){
   document.getElementById('locPromptModal').classList.remove('on');
   if(!_cdCN)return;
+  if(!pgOnlineGuard('Location set karna'))return; // online-only
   updateField(activeDate,_cdCN,'location',loc);
   updateField(activeDate,_cdCN,'locDate',new Date().toISOString().split('T')[0]);
   drawTable();updateDash();
@@ -1248,6 +1250,7 @@ function closePgOverdueModal(){document.getElementById('pgOverdueModal').classLi
 
 // Overdue Excel download
 function exportPgOverdue(){
+  if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — reload karo','d');return;}
   const files=getPgOverdueFiles();
   if(!files.length){showToast('Koi overdue file nahi');return;}
   const data=[['Case No','Party','Section','PS','Din Overdue','Date']];
@@ -1315,7 +1318,7 @@ function openCaseDetail(cn){
   if(!activeDate)return;
   _cdCN=cn;
   const rows=getDateRows(activeDate);
-  const r=rows.find(x=>x.caseno===cn);
+  const r=rows.find(x=>pgMatchCase(x.caseno,cn));
   if(!r)return;
 
   document.getElementById('cd-title').textContent='📁 '+cn;
@@ -1351,6 +1354,7 @@ function closeCaseDetail(){
 }
 function updateRemarkLive(){
   if(!_cdCN||!activeDate)return;
+  if(!navigator.onLine||!_fbDb)return; // online-only — offline mein remark change na ho
   clearTimeout(_cdRemarkTimer);
   _cdRemarkTimer=setTimeout(()=>{
     const val=document.getElementById('cd-remark-inp').value;
@@ -1359,7 +1363,9 @@ function updateRemarkLive(){
 }
 function setFileLocation(cn,loc){
   if(!activeDate)return;
+  if(!pgOnlineGuard('Location set karna'))return; // online-only
   updateField(activeDate,cn,'location',loc);
+  updateField(activeDate,cn,'locDate',new Date().toISOString().split('T')[0]); // BUG-05 fix: locDate bhi set karo
   closeCaseDetail();
   drawTable();updateDash();
   showToast(loc==='steno'?'🖊️ Steno ke paas mark ho gaya':loc==='judge'?'⚖️ Judge ke paas mark ho gaya':'🗂️ Office mein wapis');
@@ -1574,6 +1580,7 @@ function fmtTime(iso){
   }catch(e){return iso;}
 }
 function exportExcel(){
+  if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — reload karo','d');return;}
   if(!activeDate){showToast('⚠️ Date select karo','w');return;}
   const rows=getDateRows(activeDate);
   if(!rows.length){showToast('⚠️ Koi data nahi','w');return;}
@@ -1589,6 +1596,7 @@ function exportExcel(){
 
 // #2 — Steno/Judge pending files (ALL dates) Excel export with location mark
 function exportStenoJudge(){
+  if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — reload karo','d');return;}
   const allFiles=[];
   (pData.dates||[]).forEach(d=>{
     (d.rows||[]).forEach(r=>{
@@ -1751,7 +1759,10 @@ function mergeFbData(date,fbRows){
       existing._cfmSentdate=cfmSentdate;
       existing._cfmReceived=cfmReceived;
       existing._cfmDisposed=cfmDisposed;
+      // BUG-03 fix: agar pending/overdue flag badla to changed=true (warna reload pe badge gayab ho jata tha)
+      const _prevPP=JSON.stringify(existing._cfmPendingPrev||null);
       existing._cfmPendingPrev=cfmPendingPrev; // CFM ka exact flag (ditto highlight)
+      if(JSON.stringify(cfmPendingPrev||null)!==_prevPP)changed=true;
       // Also merge partyname/section/ps if blank
       if(!existing.partyname&&fr.partyname){existing.partyname=fr.partyname;changed=true;}
       if(!existing.section&&fr.section){existing.section=fr.section;changed=true;}
@@ -1780,7 +1791,13 @@ function mergeFbData(date,fbRows){
   });
 
   if(changed){
-    setDateRows(date,localRows);
+    // setDateRows ke bajaye direct save — kyunki yahan CFM ke fields (sentStatus, _cfmPendingPrev)
+    // update hue hain, Peshgar ke apne fields (received/location) nahi. Push wapas karne se
+    // unnecessary sync traffic banta (CFM update → Peshgar receive → Peshgar push back loop).
+    const idx=pData.dates.findIndex(x=>x.date===date);
+    if(idx===-1){pData.dates.push({date,rows:localRows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));} // BUG-23: sort
+    else pData.dates[idx].rows=localRows;
+    saveData(); // sirf local save, push nahi
     // Auto-select latest date if none selected
     if(!activeDate){
       const allDates=(pData.dates||[]).map(d=>d.date).sort().reverse();
@@ -1850,6 +1867,9 @@ window.addEventListener('visibilitychange',()=>{if(document.visibilityState==='h
 document.getElementById('caseDetailModal').addEventListener('click',function(e){if(e.target===this)closeCaseDetail();});
 document.getElementById('mismatchModal').addEventListener('click',function(e){if(e.target===this)closeMismatchModal();});
 document.getElementById('stenoModal').addEventListener('click',function(e){if(e.target===this)closeStenoModal();});
+// BUG-18 fix: ye 2 modals bhi backdrop tap pe band ho
+document.getElementById('pgOverdueModal').addEventListener('click',function(e){if(e.target===this)closePgOverdueModal();});
+document.getElementById('locPromptModal').addEventListener('click',function(e){if(e.target===this)this.classList.remove('on');});
 </script>
 </body>
 </html>
