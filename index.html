@@ -1092,23 +1092,36 @@ function drawTable(){
 // Overdue = 7+ din, Pending = 7 din se kam (par pichli date se sent-not-received)
 function getPgPendingMap(){
   try{
-    // CFM ka EXACT flag use karo (_cfmPendingPrev) — khud calculate nahi
-    // Jo CFM mein highlight ho, ditto wahi Peshgar mein dikhe
-    const map={};
-    (pData.dates||[]).forEach(d=>{
+    // CFM ka EXACT same calculation (jaise CFM markPendingFromPrevious + overdue)
+    // Jo CFM mein highlight ho, bilkul ditto wahi Peshgar mein
+    const today=new Date();today.setHours(0,0,0,0);
+    const allDates=pData.dates||[];
+
+    // Pass 1: received-anywhere (CFM ke received se)
+    const receivedAnywhere=new Set();
+    allDates.forEach(d=>{
       (d.rows||[]).forEach(r=>{
-        const c=String(r.caseno||'').trim().toUpperCase();
-        if(!c)return;
-        // Peshgar mein received ho gayi to highlight nahi (CFM bhi yahi karta hai)
-        if(r.received==='Received')return;
-        const pp=r._cfmPendingPrev;
-        if(pp){
-          // CFM ne jo daysDiff/overdue bheja, wahi use karo
-          const ex=map[c];
-          if(!ex||(pp.daysDiff||0)>ex.daysDiff){
-            map[c]={daysDiff:pp.daysDiff||0,overdue:!!pp.overdue};
-          }
-        }
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(cn&&r._cfmReceived)receivedAnywhere.add(cn);
+      });
+    });
+
+    // Pass 2: sent-but-not-received → pending/overdue (CFM jaisa exact)
+    const map={};
+    allDates.forEach(d=>{
+      const datePart=d.date;
+      (d.rows||[]).forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(!cn||r._cfmDisposed)return;
+        if(!r._cfmSent)return;
+        if(receivedAnywhere.has(cn))return;
+        const sd=r._cfmSentdate;
+        const trackStr=(sd&&/^\d{4}-\d{2}-\d{2}$/.test(sd))?sd:datePart;
+        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
+        const daysDiff=Math.floor((today-td)/86400000);
+        if(daysDiff<0)return;
+        const ex=map[cn];
+        if(!ex||daysDiff>ex.daysDiff){map[cn]={daysDiff:daysDiff,overdue:daysDiff>=7};}
       });
     });
     return map;
@@ -1191,22 +1204,38 @@ function pgSetLocFromPrompt(loc){
 // Returns [{caseno,partyname,section,ps,daysDiff,workDate}] — unique, most-overdue-first
 function getPgOverdueFiles(){
   try{
-    // CFM ka EXACT flag use karo (_cfmPendingPrev.overdue) — khud calculate nahi
-    // Jo CFM mein overdue ho, ditto wahi Peshgar mein
-    const caseMap={};
-    (pData.dates||[]).forEach(d=>{
+    // CFM ka EXACT same calculation (same logic jaise CFM getAllOverdueFiles)
+    // Taaki bilkul wahi files aur figures dikhe jo CFM mein hain
+    const today=new Date();today.setHours(0,0,0,0);
+    const allDates=pData.dates||[];
+
+    // Pass 1: received-anywhere (CFM ke received se — kisi bhi date pe)
+    const receivedAnywhere=new Set();
+    allDates.forEach(d=>{
       (d.rows||[]).forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
-        if(!cn)return;
-        // Peshgar mein received ho gayi to overdue nahi
-        if(r.received==='Received')return;
-        const pp=r._cfmPendingPrev;
-        if(pp&&pp.overdue){
-          const daysDiff=pp.daysDiff||0;
-          const ex=caseMap[cn];
-          if(!ex||daysDiff>ex.daysDiff){
-            caseMap[cn]={caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:daysDiff,workDate:(pp.workDate||d.date)};
-          }
+        if(cn&&r._cfmReceived)receivedAnywhere.add(cn);
+      });
+    });
+
+    // Pass 2: CFM ne sent kiya, kahin received nahi, 7+ din (CFM jaisa exact)
+    const caseMap={};
+    allDates.forEach(d=>{
+      const datePart=d.date;
+      (d.rows||[]).forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(!cn||r._cfmDisposed)return;       // CFM mein disposed
+        if(!r._cfmSent)return;                // CFM ne sent nahi kiya
+        if(receivedAnywhere.has(cn))return;   // kahin received ho gayi
+        // Days — CFM ka sentdate (warna us date ka datePart) — bilkul CFM jaisa
+        const sd=r._cfmSentdate;
+        const trackStr=(sd&&/^\d{4}-\d{2}-\d{2}$/.test(sd))?sd:datePart;
+        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
+        const daysDiff=Math.floor((today-td)/86400000);
+        if(daysDiff<7)return;                 // 7 din se kam — overdue nahi
+        const ex=caseMap[cn];
+        if(!ex||daysDiff>ex.daysDiff){
+          caseMap[cn]={caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:daysDiff,workDate:datePart};
         }
       });
     });
