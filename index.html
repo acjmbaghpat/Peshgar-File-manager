@@ -435,8 +435,7 @@ button:active{transform:scale(.97)}
 
     <!-- Banners — chips ke neeche, table ke upar -->
     <div id="mismatchBanner" onclick="openMismatchModal()">
-      <div class="mb-title">⚠️ Mismatch Alert — Sent par Received nahi!</div>
-      <div class="mb-sub">Court Manager se sent hui lekin Peshgar ne receive nahi ki</div>
+      <div class="mb-title">⚠️ Mismatch</div>
       <div class="mb-count" id="mismatchCount">0 files</div>
     </div>
 
@@ -609,8 +608,7 @@ button:active{transform:scale(.97)}
 <!-- ════ MISMATCH MODAL ════ -->
 <div class="modal center" id="mismatchModal">
   <div class="msh" style="max-width:460px">
-    <div class="mt">⚠️ Mismatch Files</div>
-    <div class="msub">Court Manager ne send kiya par Peshgar ne receive nahi kiya</div>
+    <div class="mt">⚠️ Mismatch</div>
     <div id="mismatchList"></div>
     <button class="btn neutral" onclick="closeMismatchModal()">✕ Band Karo</button>
   </div>
@@ -630,7 +628,7 @@ button:active{transform:scale(.97)}
 <div class="modal center" id="pgOverdueModal">
   <div class="msh" style="max-width:460px">
     <div class="mt">⏰ Overdue Files (7+ din)</div>
-    <div class="msub">Court Manager se aayi list — sent par abhi tak received nahi. Sirf dekhne ke liye.</div>
+    <div class="msub">Office (CFM) se sent, par Peshgar ne abhi tak wapis office nahi bheji. Sirf dekhne ke liye.</div>
     <div id="pgOverdueList"></div>
     <button class="btn primary" onclick="exportPgOverdue()" style="margin-bottom:8px">📥 Excel Download Karo</button>
     <button class="btn neutral" onclick="closePgOverdueModal()">✕ Band Karo</button>
@@ -1743,19 +1741,23 @@ function fbStartListen(){
   _fbUnsub=_fbDb.collection('cfm').onSnapshot(snap=>{
     setSyncDot('ok');
     let matched=0,skipped=0;
-    snap.forEach(doc=>{
-      const key=doc.id;
-      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key)){skipped++;return;}
-      const date=key.split('_')[0];
-      const d=doc.data();
-      if(!d||!d.data||!Array.isArray(d.data)){skipped++;return;}
-      matched++;
-      mergeFbData(date,d.data);
-    });
+    // docChanges() — sirf BADLE hue docs process karo (poora collection nahi)
+    // Isse live sync TURANT hota hai — CFM se change → Peshgar mein instant
+    const changes=snap.docChanges();
+    if(changes.length>0&&snap.size>0){
+      changes.forEach(ch=>{
+        if(ch.type==='removed')return;
+        const key=ch.doc.id;
+        if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key)){skipped++;return;}
+        const date=key.split('_')[0];
+        const d=ch.doc.data();
+        if(!d||!d.data||!Array.isArray(d.data)){skipped++;return;}
+        matched++;
+        mergeFbData(date,d.data);
+      });
+    }
     if(snap.size===0){
       fbMsg('⚠️ Firebase connected par "cfm" collection KHALI hai. Court Manager mein "Sabhi Data Push Karo" dabao.','s-warn');
-    }else if(matched===0){
-      fbMsg('⚠️ '+snap.size+' docs mile par koi date format match nahi hua','s-warn');
     }
   },err=>{
     setSyncDot('err');
