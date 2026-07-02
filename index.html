@@ -896,7 +896,12 @@ function uploadExcel(){
   const f=document.getElementById('excelFile').files[0];
   if(!f){showMsg('uploadMsg','⚠️ File select karo','s-warn');return;}
   if(!pgOnlineGuard('Excel upload')){showMsg('uploadMsg','📡 Online hone par hi upload karo','s-warn');return;}
+  // Double-click guard — processing ke दौरान button disable
+  const upBtn=document.querySelector('#tab-upload .btn.primary')||document.querySelector('button[onclick="uploadExcel()"]');
+  const resetUpBtn=()=>{if(upBtn){upBtn.disabled=false;}};
+  if(upBtn){if(upBtn.disabled)return;upBtn.disabled=true;}
   const reader=new FileReader();
+  reader.onerror=()=>{resetUpBtn();showMsg('uploadMsg','❌ File read fail','s-err');};
   reader.onload=e=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
@@ -960,6 +965,7 @@ function uploadExcel(){
       showMsg('uploadMsg',`✅ ${newRows.length} files import ho gayi! Date: ${fmtDateLabel(importDate)}`,'s-ok');
       showToast(`✅ ${newRows.length} files imported!`);
     }catch(err){showMsg('uploadMsg','❌ Error: '+err.message,'s-err');}
+    resetUpBtn();
   };
   reader.readAsArrayBuffer(f);
 }
