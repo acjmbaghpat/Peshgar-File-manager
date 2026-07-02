@@ -776,10 +776,16 @@ async function loadData(){
   }
   renderDatePills();
   if(pData.dates.length){
-    // Latest date select karo — array ka last element nahi (woh sorted nahi hota)
-    // Sabhi dates sort karke sabse nayi date pakdo
-    const sortedDates=pData.dates.map(d=>d.date).filter(Boolean).sort();
-    if(sortedDates.length)selectDate(sortedDates[sortedDates.length-1]);
+    // Point 4: Pehle AAJ ki date try karo — jis din app khule us date pe khule
+    const todayISO=new Date().toISOString().split('T')[0];
+    const hasToday=pData.dates.some(d=>d.date===todayISO);
+    if(hasToday){
+      selectDate(todayISO); // aaj ki date exist karti hai — usko select karo
+    }else{
+      // Aaj ki date nahi hai — latest date select karo
+      const sortedDates=pData.dates.map(d=>d.date).filter(Boolean).sort();
+      if(sortedDates.length)selectDate(sortedDates[sortedDates.length-1]);
+    }
   }
   updateDash();
 }
@@ -848,8 +854,14 @@ async function flushPgPush(){
 }
 // Net wapas aane par pending push auto-flush
 window.addEventListener('online',()=>{
-  showToast('📡 Net wapas aa gaya — pending data sync ho raha hai...','w');
-  setTimeout(()=>flushPgPush(),800);
+  showToast('📡 Net wapas aa gaya — sync ho raha hai...','w');
+  // Agar Firebase disconnect ho gaya tha to auto-reconnect karo (manually Connect na dabana pade)
+  if(!_fbDb){
+    tryAutoConnectFB(); // saved config se dobara connect
+    setTimeout(()=>{if(_fbDb)flushPgPush();},1500); // connect hone ke baad pending push
+  }else{
+    setTimeout(()=>flushPgPush(),800);
+  }
   pgUpdateOfflineBanner();
 });
 window.addEventListener('offline',()=>{
@@ -1357,11 +1369,11 @@ function openCaseDetail(cn){
   let infoHtml=`
     <div class="cd-row"><span class="cd-key">U/S</span><span class="cd-val">${esc(r.section||'—')}</span></div>
     <div class="cd-row"><span class="cd-key">PS</span><span class="cd-val">${esc(r.ps||'—')}</span></div>
-    <div class="cd-row"><span class="cd-key">Court Status</span><span class="cd-val">${r.sentStatus==='Sent'?'✓ Sent by Court':'—'}</span></div>
+    <div class="cd-row"><span class="cd-key">Court Status</span><span class="cd-val">${r.sentStatus==='Sent'?'✓ Sent by Court':'Not sent by office'}</span></div>
     <div class="cd-row"><span class="cd-key">Peshgar Recv</span><span class="cd-val">${r.received==='Received'?'✓ Received ('+fmtD(r.receiveddate)+')':'Not received'}</span></div>
     <div class="cd-row"><span class="cd-key">Sent to Office</span><span class="cd-val">${r.sentToOffice==='Sent'?'✓ Sent ('+fmtD(r.sentToOfficeDate)+')':'Not sent'}</span></div>
   `;
-  if(isMiss)infoHtml=`<div style="background:#fee2e2;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:700;color:var(--red)">⚠️ MISMATCH — Court ne bheja par receive nahi ki</div>`+infoHtml;
+  if(isMiss)infoHtml=`<div style="background:#fee2e2;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:700;color:var(--red)">⚠️ Mismatch</div>`+infoHtml;
   document.getElementById('cd-info').innerHTML=infoHtml;
 
   // Location select — show if received and not yet sent to office
@@ -1586,7 +1598,6 @@ function openMismatchModal(){
     <div class="miss-item">
       <div class="miss-item-cn">${esc(r.caseno)}</div>
       <div class="miss-item-party">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
-      <div class="miss-item-badge">Court ne SENT kiya — Peshgar ne Receive nahi ki</div>
     </div>
   `).join('');
   document.getElementById('mismatchModal').classList.add('on');
@@ -1829,10 +1840,11 @@ function mergeFbData(date,fbRows){
     if(idx===-1){pData.dates.push({date,rows:localRows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));} // BUG-23: sort
     else pData.dates[idx].rows=localRows;
     saveData(); // sirf local save, push nahi
-    // Auto-select latest date if none selected
+    const todayISO=new Date().toISOString().split('T')[0];
+    // Auto-select — pehle aaj ki date prefer karo (agar koi date active nahi)
     if(!activeDate){
-      const allDates=(pData.dates||[]).map(d=>d.date).sort().reverse();
-      if(allDates.length)selectDate(allDates[0]);
+      if(pData.dates.some(d=>d.date===todayISO))selectDate(todayISO);
+      else{const allDates=(pData.dates||[]).map(d=>d.date).sort().reverse();if(allDates.length)selectDate(allDates[0]);}
     } else if(date===activeDate){
       drawTable();updateDash();
     }
