@@ -1105,7 +1105,10 @@ function getPgPendingMap(){
     // CFM ka EXACT same calculation (jaise CFM markPendingFromPrevious + overdue)
     // Jo CFM mein highlight ho, bilkul ditto wahi Peshgar mein
     const today=new Date();today.setHours(0,0,0,0);
-    const allDates=pData.dates||[];
+    // Same 90-din window jaisa CFM active store (archive ke baad)
+    const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
+    const cutoffISO=cutoff.toISOString().split('T')[0];
+    const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
 
     // Pass 1: received-anywhere (CFM ke received se)
     const receivedAnywhere=new Set();
@@ -1217,7 +1220,11 @@ function getPgOverdueFiles(){
     // CFM ka EXACT same calculation (same logic jaise CFM getAllOverdueFiles)
     // Taaki bilkul wahi files aur figures dikhe jo CFM mein hain
     const today=new Date();today.setHours(0,0,0,0);
-    const allDates=pData.dates||[];
+    // CFM 90+ din purani dates ARCHIVE kar deta hai (active se hat jati hain)
+    // Exact ditto ke liye PG bhi sirf last-90-din dates dekhe — same window
+    const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
+    const cutoffISO=cutoff.toISOString().split('T')[0];
+    const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
 
     // Pass 1: received-anywhere (CFM ke received se — kisi bhi date pe)
     const receivedAnywhere=new Set();
