@@ -202,7 +202,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
 #scan-frame::before,#scan-frame::after{content:'';position:absolute;width:28px;height:28px;border-color:var(--gold2);border-style:solid;border-width:0}
 #scan-frame::before{top:-2px;left:-2px;border-top-width:3px;border-left-width:3px;border-radius:6px 0 0 0}
 #scan-frame::after{bottom:-2px;right:-2px;border-bottom-width:3px;border-right-width:3px;border-radius:0 0 6px 0}
-#qr-hl{position:absolute;border:3px solid #4ade80;border-radius:6px;display:none;transition:all .1s}
+#qr-hl{position:absolute;border:2.5px solid #4ade80;border-radius:8px;box-shadow:0 0 12px rgba(74,222,128,.4);display:none;pointer-events:none;transition:all .1s}
 #scan-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 #scan-flash.go{animation:sflash .3s}
 @keyframes sflash{0%{opacity:.7}100%{opacity:0}}
@@ -221,6 +221,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);background:#fff
 .fab{width:160px;padding:12px 14px;border-radius:var(--r16);border:none;font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:var(--sh3);transition:transform .1s}
 .fab:active{transform:scale(.96)}
 .fab-rcv{background:linear-gradient(135deg,var(--green),#15803d)}
+.fab-manual{background:linear-gradient(135deg,#0891b2,#0e7490)}
 .fab-office{background:linear-gradient(135deg,var(--blue),var(--blueh))}
 .fab-sj{background:linear-gradient(135deg,var(--purple),#5b21b6)}
 
@@ -545,8 +546,24 @@ button:active{transform:scale(.97)}
     <button class="btn neutral" onclick="document.getElementById('locPromptModal').classList.remove('on')" style="width:100%;margin-top:0">Baad mein</button>
   </div>
 </div>
+
+<!-- ════ MANUAL RECEIVE MODAL ════ -->
+<div class="modal center" id="manualRcvModal">
+  <div class="modal-box" style="max-width:440px">
+    <div class="mt">✍️ Manual Receive</div>
+    <div class="msub">Case number type karo — mismatch files (jo abhi receive nahi hui) suggest hongi. List mein na ho to nayi file bhi add kar sakte ho.</div>
+    <input type="text" id="mrInput" placeholder="Case number type karo..." autocomplete="off" oninput="mrOnInput()" style="width:100%;padding:12px;font-size:15px;border:2px solid var(--bdr);border-radius:10px;margin:8px 0;text-transform:uppercase" />
+    <div id="mrSuggest" style="max-height:240px;overflow-y:auto;margin-bottom:8px"></div>
+    <div id="mrNewHint" style="display:none;background:#fef3c7;border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:8px;color:#92400e"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn neutral" onclick="closeManualReceive()" style="flex:1;margin-top:0">Cancel</button>
+      <button class="btn primary" id="mrAddNewBtn" onclick="mrAddNew()" style="flex:1.4;margin-top:0;display:none">➕ Nayi File Received</button>
+    </div>
+  </div>
+</div>
 <div class="fab-row" id="fabRow" style="display:none">
   <button class="fab fab-rcv" onclick="startScan('receive')">📥 Receive (QR)</button>
+  <button class="fab fab-manual" onclick="openManualReceive()">✍️ Manual Receive</button>
   <button class="fab fab-office" onclick="startScan('send')">📤 Send to Office (QR)</button>
   <button class="fab fab-sj" onclick="startScan('tosj')">🖊️ Send to Steno/Judge</button>
 </div>
@@ -1175,6 +1192,7 @@ function clearSearch(){
 // ══ TABS ══
 let activeTab='files';
 function switchTab(t){
+  if(scanStream)closeScan(); // tab switch pe camera band (battery + privacy)
   activeTab=t;
   document.querySelectorAll('.tab-c').forEach(el=>el.classList.remove('on'));
   document.getElementById('tab-'+t).classList.add('on');
@@ -1422,6 +1440,124 @@ function setFileLocation(cn,loc){
   drawTable();updateDash();
   showToast(loc==='steno'?'🖊️ Steno ke paas mark ho gaya':loc==='judge'?'⚖️ Judge ke paas mark ho gaya':'🗂️ Office mein wapis');
 }
+// ════════════════════════════════════════════════════
+//  MANUAL RECEIVE — QR ke alawa, type karke received mark
+//  Point 1: sirf RECEIVED ke liye (send nahi)
+//  Point 2: suggestions sirf MISMATCH files (CFM sent, PG receive nahi)
+//  Point 3: nayi file bhi add ho sakti — CFM ke reverse count (0/0/0 ka 1st) mein turant dikhegi
+//  Teeno LIVE Firebase pe (online-only guard + setDateRows push)
+// ════════════════════════════════════════════════════
+function openManualReceive(){
+  if(!pgOnlineGuard('Manual receive'))return; // online-only — CFM ko turant pata chale
+  if(!activeDate){showToast('⚠️ Pehle koi date select karo','w');return;}
+  document.getElementById('mrInput').value='';
+  document.getElementById('mrSuggest').innerHTML='';
+  document.getElementById('mrNewHint').style.display='none';
+  document.getElementById('mrAddNewBtn').style.display='none';
+  document.getElementById('manualRcvModal').classList.add('on');
+  setTimeout(()=>{const inp=document.getElementById('mrInput');if(inp)inp.focus();},100);
+}
+function closeManualReceive(){document.getElementById('manualRcvModal').classList.remove('on');}
+
+// Sirf mismatch files return karo (CFM ne sent kiya, PG ne abhi receive nahi kiya)
+function mrGetMismatchFiles(){
+  const rows=getDateRows(activeDate);
+  return rows.filter(r=>r.sentStatus==='Sent'&&r.received!=='Received');
+}
+
+function mrOnInput(){
+  const q=document.getElementById('mrInput').value.toUpperCase().trim();
+  const sugBox=document.getElementById('mrSuggest');
+  const newHint=document.getElementById('mrNewHint');
+  const addNewBtn=document.getElementById('mrAddNewBtn');
+  if(!q){sugBox.innerHTML='';newHint.style.display='none';addNewBtn.style.display='none';return;}
+  // Point 2: sirf mismatch files mein se match dikhao
+  const mismatch=mrGetMismatchFiles();
+  const matches=mismatch.filter(r=>{
+    const cn=String(r.caseno).toUpperCase();
+    return cn.includes(q)||q.includes(cn)||pgMatchCase(r.caseno,q);
+  }).slice(0,8);
+
+  if(matches.length){
+    sugBox.innerHTML=matches.map(r=>`
+      <div class="mr-sug-item" onclick="mrSelectExisting('${esc(String(r.caseno).replace(/'/g,"\\'"))}')" style="padding:10px 12px;border:1px solid var(--bdr);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--sur)">
+        <div style="font-weight:700;font-size:14px;color:var(--ink)">${esc(r.caseno)}</div>
+        <div style="font-size:12px;color:var(--mu)">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
+      </div>
+    `).join('');
+  }else{
+    sugBox.innerHTML='<div style="text-align:center;padding:12px;color:var(--mu);font-size:13px">Is naam ki koi mismatch file nahi mili</div>';
+  }
+
+  // Point 3: exact match kisi bhi file se (mismatch ya nahi)? Agar list mein bilkul nahi → nayi file option
+  const allRows=getDateRows(activeDate);
+  const existsAnywhere=allRows.some(r=>pgMatchCase(r.caseno,q)||String(r.caseno).toUpperCase()===q);
+  const alreadyReceived=allRows.some(r=>(pgMatchCase(r.caseno,q)||String(r.caseno).toUpperCase()===q)&&r.received==='Received');
+
+  if(alreadyReceived){
+    newHint.style.display='block';
+    newHint.textContent='ℹ️ "'+q+'" pehle se Received hai.';
+    addNewBtn.style.display='none';
+  }else if(!existsAnywhere&&q.length>=2){
+    // Bilkul nayi file — CFM list mein bhi nahi. Koi warning nahi, seedha add button.
+    newHint.style.display='none';
+    addNewBtn.style.display='block';
+    addNewBtn.textContent='➕ "'+q+'" Nayi File Received';
+  }else{
+    newHint.style.display='none';
+    addNewBtn.style.display='none';
+  }
+}
+
+// Existing mismatch file ko received mark karo
+function mrSelectExisting(cn){
+  if(!pgOnlineGuard('Manual receive'))return;
+  const rows=getDateRows(activeDate);
+  const idx=rows.findIndex(r=>pgMatchCase(r.caseno,cn));
+  if(idx===-1){showToast('⚠️ File nahi mili','w');return;}
+  if(rows[idx].received==='Received'){showToast('ℹ️ Pehle se received hai','w');return;}
+  const today=new Date().toISOString().split('T')[0];
+  rows[idx].received='Received';
+  rows[idx].receiveddate=today;
+  setDateRows(activeDate,rows); // Firebase pe push (live — CFM ko pata chalega)
+  closeManualReceive();
+  drawTable();updateDash();
+  pgSpeak('Received');
+  showToast('✅ '+rows[idx].caseno+' — Received mark ho gaya');
+}
+
+// Point 3: Nayi file (jo CFM list mein nahi) add karo + received mark
+function mrAddNew(){
+  if(!pgOnlineGuard('Manual receive'))return;
+  const cn=document.getElementById('mrInput').value.toUpperCase().trim();
+  if(!cn||cn.length<2){showToast('⚠️ Sahi case number daalo','w');return;}
+  const rows=getDateRows(activeDate);
+  // Double-check exists nahi karti
+  if(rows.some(r=>pgMatchCase(r.caseno,cn)||String(r.caseno).toUpperCase()===cn)){
+    showToast('ℹ️ Ye file to pehle se list mein hai','w');return;
+  }
+  const today=new Date().toISOString().split('T')[0];
+  // Nayi file — _cfmSent FALSE (CFM ne nahi bheji), received TRUE
+  // Isse CFM ke reverse-mismatch (0/0/0 ka pehla number) mein aayegi
+  rows.push({
+    srno:String(rows.length+1),
+    caseno:cn,
+    partyname:'',section:'',ps:'',
+    sentStatus:'', // CFM ne sent nahi kiya
+    remark:'Peshgar ne manually add ki (CFM list mein nahi thi)',
+    received:'Received',receiveddate:today,
+    sentToOffice:'',sentToOfficeDate:'',
+    location:'office',locDate:today,
+    _cfmSent:false,_cfmSentdate:'',_cfmReceived:false,_cfmDisposed:false,_cfmPendingPrev:null,
+    _pgManualAdd:true // flag — ye Peshgar ne add ki
+  });
+  setDateRows(activeDate,rows); // Firebase pe push (live)
+  closeManualReceive();
+  drawTable();updateDash();
+  pgSpeak('New file received');
+  showToast('✅ Nayi file "'+cn+'" add + received — CFM ke Miss card mein dikhegi');
+}
+
 function updateField(date,cn,field,val){
   const rows=getDateRows(date);
   const idx=rows.findIndex(r=>r.caseno===cn);
@@ -1437,6 +1573,7 @@ async function startScan(ctx){
   if(!navigator.onLine){showToast('📡 Internet nahi hai! Peshgar app sirf online chalti hai.','d');return;}
   if(!_fbDb){showToast('☁️ Firebase connect nahi hai! Pehle sync karo.','d');return;}
   scanCtx=ctx;contMode=false;scanLast='';scanCool=false;
+  hideQRBox(); // purana green box clear
   const label=ctx==='receive'?'📥 File Receive — QR Scan karo':ctx==='tosj'?'🖊️ Steno/Judge ko bhejo — QR Scan karo':'📤 Office bhejo — QR Scan karo';
   document.getElementById('scan-ml').textContent=label;
   document.getElementById('scan-card').style.display='none';
@@ -1466,18 +1603,28 @@ async function doDet(){
       const dec=bs[0].rawValue.trim();
       if(dec&&(!contMode||dec!==scanLast)){
         scanLast=dec;scanCool=true;
+        showQRBox(bs[0].boundingBox,vid); // green box QR ke around (CFM jaisa feedback)
         const fl=document.getElementById('scan-flash');fl.classList.remove('go');void fl.offsetWidth;fl.classList.add('go');
         handleScanResult(dec);
         if(!contMode){setTimeout(closeScan,700);return;}
-        else{setTimeout(()=>{scanCool=false;},2000);schedDet();return;}
+        else{setTimeout(()=>{scanCool=false;hideQRBox();},2000);schedDet();return;}
       }
     }
   }catch(e){}
   schedDet();
 }
+function showQRBox(rect,vid){
+  const b=document.getElementById('qr-hl'),w=document.getElementById('scan-box');
+  if(!b||!w||!vid.videoWidth)return;
+  const sx=w.offsetWidth/vid.videoWidth,sy=w.offsetHeight/vid.videoHeight;
+  b.style.left=Math.round(rect.x*sx)+'px';b.style.top=Math.round(rect.y*sy)+'px';
+  b.style.width=Math.round(rect.width*sx)+'px';b.style.height=Math.round(rect.height*sy)+'px';b.style.display='block';
+}
+function hideQRBox(){const b=document.getElementById('qr-hl');if(b)b.style.display='none';}
 function closeScan(){
   scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
   document.getElementById('scan-vid').srcObject=null;
+  hideQRBox(); // green box hatao
   document.getElementById('scan-ov').classList.remove('on');
 }
 function toggleCont(){
@@ -1917,7 +2064,7 @@ function flushSave(){
   }
 }
 window.addEventListener('pagehide',flushSave);
-window.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushSave();});
+window.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){flushSave();if(scanStream)closeScan();}}); // background mein camera band (battery + privacy)
 
 // Close modals on backdrop click
 document.getElementById('caseDetailModal').addEventListener('click',function(e){if(e.target===this)closeCaseDetail();});
