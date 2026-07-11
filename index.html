@@ -1131,29 +1131,24 @@ function drawTable(){
 function _pgSentRecvMap(allDates){
   const sends={},recvs={},disposedSet=new Set();
   allDates.forEach(d=>{
-    const datePart=d.date;
+    const datePart=d.date; // working date
     (d.rows||[]).forEach(r=>{
       const cn=String(r.caseno||'').trim().toUpperCase();
       if(!cn)return;
       if(r._cfmDisposed)disposedSet.add(cn);
-      if(r._cfmSent){
-        const sd=(r._cfmSentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r._cfmSentdate))?r._cfmSentdate:datePart;
-        (sends[cn]=sends[cn]||[]).push({sentDate:sd,rec:r,workDate:datePart});
-      }
-      if(r._cfmReceived){
-        const rd=(r._cfmReceiveddate&&/^\d{4}-\d{2}-\d{2}$/.test(r._cfmReceiveddate))?r._cfmReceiveddate:datePart;
-        (recvs[cn]=recvs[cn]||[]).push(rd);
-      }
+      // Count WORKING-DATE se (file is din Peshgar gayi), sent-date advance ho sakti hai
+      if(r._cfmSent)(sends[cn]=sends[cn]||[]).push({wdate:datePart,rec:r,workDate:datePart});
+      if(r._cfmReceived)(recvs[cn]=recvs[cn]||[]).push(datePart);
     });
   });
-  // Har case: last-receiving ke BAAD ki sabse purani un-received sending
+  // Har case: last-receiving (working-date) ke BAAD ki sabse purani un-received sending
   const out={};
   for(const cn in sends){
     const lastRecv=(recvs[cn]&&recvs[cn].length)?recvs[cn].reduce((a,b)=>a>b?a:b):null;
-    const pending=sends[cn].filter(s=>!lastRecv||s.sentDate>lastRecv);
+    const pending=sends[cn].filter(s=>!lastRecv||s.wdate>lastRecv);
     if(!pending.length){out[cn]={sentDate:null,recvDate:lastRecv,disposed:disposedSet.has(cn),rec:sends[cn][0].rec,workDate:sends[cn][0].workDate};continue;}
-    const oldest=pending.reduce((a,b)=>a.sentDate<b.sentDate?a:b);
-    out[cn]={sentDate:oldest.sentDate,recvDate:lastRecv,disposed:disposedSet.has(cn),rec:oldest.rec,workDate:oldest.workDate};
+    const oldest=pending.reduce((a,b)=>a.wdate<b.wdate?a:b);
+    out[cn]={sentDate:oldest.wdate,recvDate:lastRecv,disposed:disposedSet.has(cn),rec:oldest.rec,workDate:oldest.workDate};
   }
   return out;
 }
