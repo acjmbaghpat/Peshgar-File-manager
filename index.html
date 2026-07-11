@@ -1124,6 +1124,40 @@ function drawTable(){
     </tr>`;
   }).join('');
 }
+// Cycle-aware sent/received nikaalne wala helper — CFM ke getAllOverdueFiles jaisa EXACT.
+// File cycle karti hai: sent → received → dobara sent → dobara received. Har sending ki
+// apni receiving honi chahiye. Purani receiving nayi sending ko cover nahi karti.
+// Return: {cn: {sentDate, recvDate|null, rec, workDate, disposed}} — latest sent per case.
+function _pgSentRecvMap(allDates){
+  const sends={},recvs={},disposedSet=new Set();
+  allDates.forEach(d=>{
+    const datePart=d.date;
+    (d.rows||[]).forEach(r=>{
+      const cn=String(r.caseno||'').trim().toUpperCase();
+      if(!cn)return;
+      if(r._cfmDisposed)disposedSet.add(cn);
+      if(r._cfmSent){
+        const sd=(r._cfmSentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r._cfmSentdate))?r._cfmSentdate:datePart;
+        (sends[cn]=sends[cn]||[]).push({sentDate:sd,rec:r,workDate:datePart});
+      }
+      if(r._cfmReceived){
+        const rd=(r._cfmReceiveddate&&/^\d{4}-\d{2}-\d{2}$/.test(r._cfmReceiveddate))?r._cfmReceiveddate:datePart;
+        (recvs[cn]=recvs[cn]||[]).push(rd);
+      }
+    });
+  });
+  // Har case: last-receiving ke BAAD ki sabse purani un-received sending
+  const out={};
+  for(const cn in sends){
+    const lastRecv=(recvs[cn]&&recvs[cn].length)?recvs[cn].reduce((a,b)=>a>b?a:b):null;
+    const pending=sends[cn].filter(s=>!lastRecv||s.sentDate>lastRecv);
+    if(!pending.length){out[cn]={sentDate:null,recvDate:lastRecv,disposed:disposedSet.has(cn),rec:sends[cn][0].rec,workDate:sends[cn][0].workDate};continue;}
+    const oldest=pending.reduce((a,b)=>a.sentDate<b.sentDate?a:b);
+    out[cn]={sentDate:oldest.sentDate,recvDate:lastRecv,disposed:disposedSet.has(cn),rec:oldest.rec,workDate:oldest.workDate};
+  }
+  return out;
+}
+
 // Pending/overdue map (caseno → {daysDiff,overdue}) — CFM jaisा exact, saari dates
 // Overdue = 7+ din, Pending = 7 din se kam (par pichli date se sent-not-received)
 function getPgPendingMap(){
@@ -1137,32 +1171,18 @@ function getPgPendingMap(){
     const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
 
     // Pass 1: received-anywhere (CFM ke received se)
-    const receivedAnywhere=new Set();
-    allDates.forEach(d=>{
-      (d.rows||[]).forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(cn&&r._cfmReceived)receivedAnywhere.add(cn);
-      });
-    });
-
-    // Pass 2: sent-but-not-received → pending/overdue (CFM jaisa exact)
+    // Cycle-aware — latest sending ke baad receiving nahi hui to pending/overdue
+    const srMap=_pgSentRecvMap(allDates);
     const map={};
-    allDates.forEach(d=>{
-      const datePart=d.date;
-      (d.rows||[]).forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(!cn||r._cfmDisposed)return;
-        if(!r._cfmSent)return;
-        if(receivedAnywhere.has(cn))return;
-        const sd=r._cfmSentdate;
-        const trackStr=(sd&&/^\d{4}-\d{2}-\d{2}$/.test(sd))?sd:datePart;
-        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
-        const daysDiff=Math.floor((today-td)/86400000);
-        if(daysDiff<0)return;
-        const ex=map[cn];
-        if(!ex||daysDiff>ex.daysDiff){map[cn]={daysDiff:daysDiff,overdue:daysDiff>=7};}
-      });
-    });
+    for(const cn in srMap){
+      const si=srMap[cn];
+      if(si.disposed)continue;
+      if(!si.sentDate)continue;                          // sab sendings received — skip
+      const td=new Date(si.sentDate+'T00:00:00');td.setHours(0,0,0,0);
+      const daysDiff=Math.floor((today-td)/86400000);
+      if(daysDiff<0)continue;
+      map[cn]={daysDiff:daysDiff,overdue:daysDiff>=7};
+    }
     return map;
   }catch(e){console.error('getPgPendingMap:',e);return {};}
 }
@@ -1253,36 +1273,20 @@ function getPgOverdueFiles(){
     const cutoffISO=_localISO(cutoff);
     const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
 
-    // Pass 1: received-anywhere (CFM ke received se — kisi bhi date pe)
-    const receivedAnywhere=new Set();
-    allDates.forEach(d=>{
-      (d.rows||[]).forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(cn&&r._cfmReceived)receivedAnywhere.add(cn);
-      });
-    });
-
-    // Pass 2: CFM ne sent kiya, kahin received nahi, 7+ din (CFM jaisa exact)
+    // Cycle-aware (CFM getAllOverdueFiles jaisa EXACT) — latest sending ke baad
+    // receiving nahi hui aur 7+ din → overdue. Purani receiving nayi sending cover nahi karti.
+    const srMap=_pgSentRecvMap(allDates);
     const caseMap={};
-    allDates.forEach(d=>{
-      const datePart=d.date;
-      (d.rows||[]).forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(!cn||r._cfmDisposed)return;       // CFM mein disposed
-        if(!r._cfmSent)return;                // CFM ne sent nahi kiya
-        if(receivedAnywhere.has(cn))return;   // kahin received ho gayi
-        // Days — CFM ka sentdate (warna us date ka datePart) — bilkul CFM jaisa
-        const sd=r._cfmSentdate;
-        const trackStr=(sd&&/^\d{4}-\d{2}-\d{2}$/.test(sd))?sd:datePart;
-        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
-        const daysDiff=Math.floor((today-td)/86400000);
-        if(daysDiff<7)return;                 // 7 din se kam — overdue nahi
-        const ex=caseMap[cn];
-        if(!ex||daysDiff>ex.daysDiff){
-          caseMap[cn]={caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:daysDiff,workDate:datePart};
-        }
-      });
-    });
+    for(const cn in srMap){
+      const si=srMap[cn];
+      if(si.disposed)continue;                          // CFM mein disposed
+      if(!si.sentDate)continue;                          // sab sendings received — skip
+      const td=new Date(si.sentDate+'T00:00:00');td.setHours(0,0,0,0);
+      const daysDiff=Math.floor((today-td)/86400000);
+      if(daysDiff<7)continue;                            // 7 din se kam — overdue nahi
+      const r=si.rec;
+      caseMap[cn]={caseno:r.caseno,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',daysDiff:daysDiff,workDate:si.workDate};
+    }
     const result=Object.values(caseMap);
     result.sort((a,b)=>b.daysDiff-a.daysDiff);
     return result;
@@ -1551,7 +1555,7 @@ function mrAddNew(){
     received:'Received',receiveddate:today,
     sentToOffice:'',sentToOfficeDate:'',
     location:'office',locDate:today,
-    _cfmSent:false,_cfmSentdate:'',_cfmReceived:false,_cfmDisposed:false,_cfmPendingPrev:null,
+    _cfmSent:false,_cfmSentdate:'',_cfmReceived:false,_cfmReceiveddate:'',_cfmDisposed:false,_cfmPendingPrev:null,
     _pgManualAdd:true // flag — ye Peshgar ne add ki
   });
   setDateRows(activeDate,rows); // Firebase pe push (live)
@@ -1954,6 +1958,7 @@ function mergeFbData(date,fbRows){
     const cfmSent=fr.sent==='Sent';
     const cfmSentdate=fr.sentdate||'';
     const cfmReceived=fr.received==='Received';
+    const cfmReceiveddate=fr.receiveddate||'';
     const cfmDisposed=!!fr._disposed;
     // CFM ka EXACT pending/overdue flag — jo CFM ne calculate karke bheja (ditto same dikhana hai)
     const cfmPendingPrev=fr._pendingPrev||null;
@@ -1963,6 +1968,7 @@ function mergeFbData(date,fbRows){
       existing._cfmSent=cfmSent;
       existing._cfmSentdate=cfmSentdate;
       existing._cfmReceived=cfmReceived;
+      existing._cfmReceiveddate=cfmReceiveddate;
       existing._cfmDisposed=cfmDisposed;
       // BUG-03 fix: agar pending/overdue flag badla to changed=true (warna reload pe badge gayab ho jata tha)
       const _prevPP=JSON.stringify(existing._cfmPendingPrev||null);
@@ -1988,6 +1994,7 @@ function mergeFbData(date,fbRows){
         _cfmSent:cfmSent,
         _cfmSentdate:cfmSentdate,
         _cfmReceived:cfmReceived,
+        _cfmReceiveddate:cfmReceiveddate,
         _cfmDisposed:cfmDisposed,
         _cfmPendingPrev:cfmPendingPrev,
       });
