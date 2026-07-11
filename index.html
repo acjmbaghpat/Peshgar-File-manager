@@ -655,6 +655,9 @@ button:active{transform:scale(.97)}
 <div id="bot-nav"></div><!-- spacer -->
 
 <script>
+// LOCAL date (YYYY-MM-DD) — toISOString() UTC deta hai jo IST (+5:30) pe subah ek din piche
+// ho sakta hai. Ye local calendar-date deta hai. CFM aur PG dono same rakhne ke liye zaroori.
+function _localISO(d){const y=d.getFullYear();const m=String(d.getMonth()+1).padStart(2,'0');const day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
 // ════════════════════════════════════
 // PESHGAR MANAGER — Core JS
 // ════════════════════════════════════
@@ -794,7 +797,7 @@ async function loadData(){
   renderDatePills();
   if(pData.dates.length){
     // Point 4: Pehle AAJ ki date try karo — jis din app khule us date pe khule
-    const todayISO=new Date().toISOString().split('T')[0];
+    const todayISO=_localISO(new Date());
     const hasToday=pData.dates.some(d=>d.date===todayISO);
     if(hasToday){
       selectDate(todayISO); // aaj ki date exist karti hai — usko select karo
@@ -942,7 +945,7 @@ function uploadExcel(){
 
       // Try to detect date from filename
       const dateMatch=f.name.match(/(\d{4}-\d{2}-\d{2})/);
-      const todayISO=new Date().toISOString().split('T')[0];
+      const todayISO=_localISO(new Date());
       // BUG-19 fix: date valid hai? (2024-13-45 jaisa invalid skip karo)
       const _isValidISO=(iso)=>{const d=new Date(iso+'T00:00:00');return !isNaN(d.getTime())&&iso===d.toISOString().split('T')[0];};
       const importDate=(dateMatch&&_isValidISO(dateMatch[1]))?dateMatch[1]:todayISO;
@@ -1130,7 +1133,7 @@ function getPgPendingMap(){
     const today=new Date();today.setHours(0,0,0,0);
     // Same 90-din window jaisa CFM active store (archive ke baad)
     const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
-    const cutoffISO=cutoff.toISOString().split('T')[0];
+    const cutoffISO=_localISO(cutoff);
     const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
 
     // Pass 1: received-anywhere (CFM ke received se)
@@ -1230,7 +1233,7 @@ function pgSetLocFromPrompt(loc){
   if(!_cdCN)return;
   if(!pgOnlineGuard('Location set karna'))return; // online-only
   updateField(activeDate,_cdCN,'location',loc);
-  updateField(activeDate,_cdCN,'locDate',new Date().toISOString().split('T')[0]);
+  updateField(activeDate,_cdCN,'locDate',_localISO(new Date()));
   drawTable();updateDash();
   pgSpeak(loc==='steno'?'Steno':'Judge');
   showToast(loc==='steno'?'🖊️ Steno ke paas':'⚖️ Judge ke paas');
@@ -1247,7 +1250,7 @@ function getPgOverdueFiles(){
     // CFM 90+ din purani dates ARCHIVE kar deta hai (active se hat jati hain)
     // Exact ditto ke liye PG bhi sirf last-90-din dates dekhe — same window
     const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
-    const cutoffISO=cutoff.toISOString().split('T')[0];
+    const cutoffISO=_localISO(cutoff);
     const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
 
     // Pass 1: received-anywhere (CFM ke received se — kisi bhi date pe)
@@ -1435,7 +1438,7 @@ function setFileLocation(cn,loc){
   if(!activeDate)return;
   if(!pgOnlineGuard('Location set karna'))return; // online-only
   updateField(activeDate,cn,'location',loc);
-  updateField(activeDate,cn,'locDate',new Date().toISOString().split('T')[0]); // BUG-05 fix: locDate bhi set karo
+  updateField(activeDate,cn,'locDate',_localISO(new Date())); // BUG-05 fix: locDate bhi set karo
   closeCaseDetail();
   drawTable();updateDash();
   showToast(loc==='steno'?'🖊️ Steno ke paas mark ho gaya':loc==='judge'?'⚖️ Judge ke paas mark ho gaya':'🗂️ Office mein wapis');
@@ -1516,7 +1519,7 @@ function mrSelectExisting(cn){
   const idx=rows.findIndex(r=>pgMatchCase(r.caseno,cn));
   if(idx===-1){showToast('⚠️ File nahi mili','w');return;}
   if(rows[idx].received==='Received'){showToast('ℹ️ Pehle se received hai','w');return;}
-  const today=new Date().toISOString().split('T')[0];
+  const today=_localISO(new Date());
   rows[idx].received='Received';
   rows[idx].receiveddate=today;
   setDateRows(activeDate,rows); // Firebase pe push (live — CFM ko pata chalega)
@@ -1536,7 +1539,7 @@ function mrAddNew(){
   if(rows.some(r=>pgMatchCase(r.caseno,cn)||String(r.caseno).toUpperCase()===cn)){
     showToast('ℹ️ Ye file to pehle se list mein hai','w');return;
   }
-  const today=new Date().toISOString().split('T')[0];
+  const today=_localISO(new Date());
   // Nayi file — _cfmSent FALSE (CFM ne nahi bheji), received TRUE
   // Isse CFM ke reverse-mismatch (0/0/0 ka pehla number) mein aayegi
   rows.push({
@@ -1679,7 +1682,7 @@ function handleScanResult(dec){
   }
 
   const actualCN=rows[idx].caseno;
-  const today=new Date().toISOString().split('T')[0];
+  const today=_localISO(new Date());
   if(scanCtx==='receive'){
     if(rows[idx].received==='Received'){
       showSC('ℹ️ '+actualCN+' — pehle se RECEIVED hai','#d97706');
@@ -2000,7 +2003,7 @@ function mergeFbData(date,fbRows){
     if(idx===-1){pData.dates.push({date,rows:localRows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));} // BUG-23: sort
     else pData.dates[idx].rows=localRows;
     saveData(); // sirf local save, push nahi
-    const todayISO=new Date().toISOString().split('T')[0];
+    const todayISO=_localISO(new Date());
     // Auto-select — pehle aaj ki date prefer karo (agar koi date active nahi)
     if(!activeDate){
       if(pData.dates.some(d=>d.date===todayISO))selectDate(todayISO);
