@@ -655,6 +655,23 @@ button:active{transform:scale(.97)}
 <div id="bot-nav"></div><!-- spacer -->
 
 <script>
+// ═══ CFM FORMAT (CM app ke saath sync) ═══
+// CM ab CFM data ko JSON string mein bhejta hai (Firestore ki 40,000 index-entry limit
+// se bachne ke liye — 1,250+ records/date pe purana format fail ho jata tha).
+// Ye helper naya aur purana dono format padh leta hai.
+function cfmFromFirebase(d){
+  if(!d)return null;
+  if(typeof d.dataJson==='string'){
+    try{const p=JSON.parse(d.dataJson);return Array.isArray(p)?p:null;}
+    catch(e){console.error('cfmFromFirebase parse fail:',e);return null;}
+  }
+  if(Array.isArray(d.data))return d.data; // purana format
+  return null;
+}
+// PG apna data bhi JSON string mein bheje (bade cause-list pe safe rahe)
+function pgToFirebase(rows){
+  return {dataJson:JSON.stringify(rows||[]),count:(rows||[]).length,at:Date.now(),v:2};
+}
 // LOCAL date (YYYY-MM-DD) — toISOString() UTC deta hai jo IST (+5:30) pe subah ek din piche
 // ho sakta hai. Ye local calendar-date deta hai. CFM aur PG dono same rakhne ke liye zaroori.
 function _localISO(d){const y=d.getFullYear();const m=String(d.getMonth()+1).padStart(2,'0');const day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
@@ -867,7 +884,7 @@ async function flushPgPush(){
     try{
       const rows=getDateRows(date);
       const slim=rows.map(r=>({caseno:r.caseno,received:r.received||'',sentToOffice:r.sentToOffice||'',location:r.location||''}));
-      await _fbDb.collection('peshgar').doc(date).set({data:slim,at:Date.now()});
+      await _fbDb.collection('peshgar').doc(date).set(pgToFirebase(slim));
       _pgPendingDates.delete(date); // successfully pushed
     }catch(e){console.warn('pgPush retry pending:',e);}
   }
@@ -1161,9 +1178,9 @@ function getPgPendingMap(){
     // Jo CFM mein highlight ho, bilkul ditto wahi Peshgar mein
     const today=new Date();today.setHours(0,0,0,0);
     // Same 90-din window jaisa CFM active store (archive ke baad)
-    const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
-    const cutoffISO=_localISO(cutoff);
-    const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
+    // KOI 90-DIN WINDOW NAHI — file 100 din ki ho ya 500, jab tak wapas receive nahi
+    // hui, overdue/pending mein dikhegi (CFM se exact match).
+    const allDates=(pData.dates||[]);
 
     // Pass 1: received-anywhere (CFM ke received se)
     // Cycle-aware — latest sending ke baad receiving nahi hui to pending/overdue
@@ -1264,9 +1281,9 @@ function getPgOverdueFiles(){
     const today=new Date();today.setHours(0,0,0,0);
     // CFM 90+ din purani dates ARCHIVE kar deta hai (active se hat jati hain)
     // Exact ditto ke liye PG bhi sirf last-90-din dates dekhe — same window
-    const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
-    const cutoffISO=_localISO(cutoff);
-    const allDates=(pData.dates||[]).filter(d=>d.date>=cutoffISO);
+    // KOI 90-DIN WINDOW NAHI — file 100 din ki ho ya 500, jab tak wapas receive nahi
+    // hui, overdue/pending mein dikhegi (CFM se exact match).
+    const allDates=(pData.dates||[]);
 
     // Cycle-aware (CFM getAllOverdueFiles jaisa EXACT) — latest sending ke baad
     // receiving nahi hui aur 7+ din → overdue. Purani receiving nayi sending cover nahi karti.
@@ -1924,9 +1941,10 @@ function fbStartListen(){
         if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key)){skipped++;return;}
         const date=key.split('_')[0];
         const d=ch.doc.data();
-        if(!d||!d.data||!Array.isArray(d.data)){skipped++;return;}
+        const _rows=cfmFromFirebase(d);
+        if(!_rows){skipped++;return;}
         matched++;
-        mergeFbData(date,d.data);
+        mergeFbData(date,_rows);
       });
     }
     if(snap.size===0){
@@ -2029,9 +2047,10 @@ async function fbPullData(){
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))return;
       const date=key.split('_')[0];
       const d=doc.data();
-      if(!d||!d.data||!Array.isArray(d.data))return;
+      const _rows=cfmFromFirebase(d);
+      if(!_rows)return;
       matched++;
-      mergeFbData(date,d.data);
+      mergeFbData(date,_rows);
     });
     // Auto-select latest date after pull
     if(!activeDate&&pData.dates.length){
