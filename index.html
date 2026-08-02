@@ -1924,6 +1924,7 @@ async function fbInit(cfg){
     startPeriodicSync(); // continuous sync chालू karo
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
+let _unparsedDocs=0; // version-mismatch detection: kitne CFM docs padhe nahi ja sake
 function fbStartListen(){
   if(!_fbDb)return;
   if(_fbUnsub)_fbUnsub();
@@ -1942,10 +1943,18 @@ function fbStartListen(){
         const date=key.split('_')[0];
         const d=ch.doc.data();
         const _rows=cfmFromFirebase(d);
-        if(!_rows){skipped++;return;}
+        if(!_rows){skipped++;_unparsedDocs++;return;}
         matched++;
         mergeFbData(date,_rows);
       });
+    }
+    // VERSION-MISMATCH GUARD: agar Court Manager ne data likha hai par ye app usko
+    // padh HI nahi paa raha (naya format, purana app), to CFM ka sent/received sab
+    // KHAALI dikhega — jaise data hi na ho. Local data safe rehta hai (hum kuch delete
+    // nahi karte), par user ko turant pata chalna chahiye ki app UPDATE karni hai.
+    if(matched===0&&_unparsedDocs>0){
+      fbMsg('🔴 Court Manager ka data padha nahi ja raha ('+_unparsedDocs+' records) — ye app PURANI hai. Nayi Peshgar app file deploy karo, tab tak sent/received khaali dikhega (data delete nahi hua).','s-err');
+      showToast('🔴 App update karo — CM ka naya data padha nahi ja raha','d');
     }
     if(snap.size===0){
       fbMsg('⚠️ Firebase connected par "cfm" collection KHALI hai. Court Manager mein "Sabhi Data Push Karo" dabao.','s-warn');
