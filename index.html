@@ -498,6 +498,12 @@ button:active{transform:scale(.97)}
         <button class="btn neutral" onclick="fbDisconnect()" style="margin-top:0">✕ Disconnect</button>
       </div>
       <button class="btn success" onclick="fbPullData()" style="margin-top:8px">🔄 Sync Now (Pull)</button>
+      <button class="btn" onclick="pgRestoreMyWork()" style="margin-top:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff">♻️ Mera Kaam Firebase Se Wapas Laao</button>
+      <div style="font-size:11px;color:var(--mu);margin-top:6px;line-height:1.45">
+        Agar phone ka data saaf ho gaya ho (browser data clear, app dobara install),
+        to aapka apna received / office-bheja hua kaam Firebase se wapas aa jaayega.
+        <b>Ye sirf JODTA hai — kuch mitata nahi.</b>
+      </div>
       <div id="fbMsg" class="smsg"></div>
     </div>
 
@@ -1965,6 +1971,127 @@ function fbStartListen(){
     showToast('❌ Firebase: '+err.message,'d');
   });
 }
+
+// ═══════════════════════════════════════════════════════════════
+// MERA KAAM WAPAS LAAO — peshgar/{date} docs se restore
+// PROBLEM: PG apna kaam (received / sentToOffice / location) har baar
+// Firebase pe PUSH to karta tha, par kabhi WAPAS PADHTA nahi tha.
+// Matlab wo data sirf phone ke local IndexedDB mein zinda tha — agar
+// browser ka data saaf ho jaye, app dobara install ho, ya phone storage
+// evict kar de, to sab kuch "gayab" dikhta tha... jabki Firebase pe
+// safe pada hota tha, bas usse laane ka koi rasta hi nahi tha.
+//
+// SAFETY (sabse zaroori):
+//  • Sirf JODTA hai — local mein jo pehle se bhara hai use KABHI nahi mitata
+//  • Khali remote value se bhari hui local value overwrite nahi hoti
+//  • Pehle sirf GINTI dikhata hai, aapke "haan" ke baad hi kuch badalta hai
+//  • Kuch bhi likhne se pehle poora backup file download ho jaata hai
+// ═══════════════════════════════════════════════════════════════
+async function pgRestoreMyWork(){
+  if(!_fbDb){fbMsg('❌ Pehle Firebase Connect karo','s-err');showToast('❌ Firebase connect nahi hai','d');return;}
+  fbMsg('🔎 Firebase se aapka purana kaam dhoondh rahe hain...','s-warn');
+  let snap;
+  try{ snap=await _fbDb.collection('peshgar').get(); }
+  catch(e){ fbMsg('❌ Firebase read fail: '+e.message,'s-err'); return; }
+  if(!snap||snap.empty){ fbMsg('ℹ️ Firebase pe koi purana Peshgar record nahi mila.','s-warn'); return; }
+
+  // ── PASS 1: sirf ginti (kuch badla nahi jaata) ──
+  const plan=[]; let wouldFill=0, wouldAddRows=0, datesTouched=0;
+  snap.docs.forEach(doc=>{
+    const date=doc.id;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return;
+    let rows=null;
+    try{
+      const d=doc.data();
+      if(typeof d.dataJson==='string')rows=JSON.parse(d.dataJson);
+      else if(Array.isArray(d.data))rows=d.data;
+    }catch(e){ return; }
+    if(!Array.isArray(rows)||!rows.length)return;
+    const local=getDateRows(date);
+    const lmap=new Map(local.map(r=>[String(r.caseno).toUpperCase().trim(),r]));
+    const fills=[]; const adds=[];
+    rows.forEach(rr=>{
+      const cn=String(rr.caseno||'').toUpperCase().trim();
+      if(!cn)return;
+      const hasWork=(rr.received||rr.sentToOffice||(rr.location&&rr.location!=='office'));
+      if(!hasWork)return;                       // kuch restore karne layak hai hi nahi
+      const lr=lmap.get(cn);
+      if(!lr){ adds.push(rr); return; }
+      // sirf KHALI local fields hi bharni hain
+      if((!lr.received&&rr.received)||(!lr.sentToOffice&&rr.sentToOffice)||
+         ((!lr.location||lr.location==='office')&&rr.location&&rr.location!=='office')) fills.push({lr,rr});
+    });
+    if(fills.length||adds.length){
+      plan.push({date,fills,adds});
+      wouldFill+=fills.length; wouldAddRows+=adds.length; datesTouched++;
+    }
+  });
+
+  if(!plan.length){
+    fbMsg('✅ Sab kuch pehle se maujood hai — restore karne ko kuch nahi mila.','s-ok');
+    showToast('✅ Aapka kaam pehle se safe hai');
+    return;
+  }
+
+  const msg='♻️ Firebase pe aapka purana kaam mila:\n\n'
+    +'• '+datesTouched+' date(s)\n'
+    +'• '+wouldFill+' file(s) mein received/office ka kaam wapas aayega\n'
+    +'• '+wouldAddRows+' file(s) jo abhi list mein hai hi nahi, wo judegi\n\n'
+    +'Ye sirf JODEGA — jo abhi bhara hua hai wo kuch nahi mitega.\n'
+    +'Aage badhne se pehle ek backup file bhi download ho jaayegi.\n\nAage badhein?';
+  if(!confirm(msg)){ fbMsg('Restore cancel kiya gaya — kuch nahi badla.','s-warn'); return; }
+
+  // ── SAFETY BACKUP: kuch chhune se PEHLE poora local data file mein ──
+  try{
+    const blob=new Blob([JSON.stringify(pData,null,1)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='Peshgar_BEFORE_RESTORE_'+_localISO(new Date())+'.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+  }catch(e){
+    if(!confirm('⚠️ Backup file download nahi ho payi.\nBina backup ke aage badhein?'))
+      { fbMsg('Restore roka gaya (backup fail).','s-err'); return; }
+  }
+
+  // ── PASS 2: ab asli merge (sirf jodna) ──
+  let filled=0, added=0;
+  plan.forEach(p=>{
+    p.fills.forEach(({lr,rr})=>{
+      if(!lr.received&&rr.received){lr.received=rr.received;lr.receiveddate=lr.receiveddate||'';}
+      if(!lr.sentToOffice&&rr.sentToOffice)lr.sentToOffice=rr.sentToOffice;
+      if((!lr.location||lr.location==='office')&&rr.location&&rr.location!=='office')lr.location=rr.location;
+      filled++;
+    });
+    if(p.adds.length){
+      const idx=pData.dates.findIndex(x=>x.date===p.date);
+      const rows=(idx===-1)?[]:pData.dates[idx].rows;
+      p.adds.forEach(rr=>{
+        rows.push({
+          srno:String(rows.length+1),
+          caseno:String(rr.caseno).toUpperCase().trim(),
+          partyname:'',section:'',ps:'',
+          sentStatus:'',remark:'',
+          received:rr.received||'',receiveddate:'',
+          sentToOffice:rr.sentToOffice||'',sentToOfficeDate:'',
+          location:rr.location||'office',
+          _restored:true,   // CFM sync baad mein party-name wagera bhar dega
+        });
+        added++;
+      });
+      if(idx===-1){pData.dates.push({date:p.date,rows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));}
+      else pData.dates[idx].rows=rows;
+    }
+  });
+
+  saveData();
+  renderDatePills();
+  if(activeDate){drawTable();}
+  updateDash();
+  fbMsg('✅ Wapas aa gaya — '+filled+' file(s) ka kaam restore, '+added+' nayi file(s) judi ('+plan.length+' dates).','s-ok');
+  showToast('♻️ Aapka purana kaam wapas aa gaya!');
+}
+
 function mergeFbData(date,fbRows){
   // Get or create local date
   let localRows=getDateRows(date);
