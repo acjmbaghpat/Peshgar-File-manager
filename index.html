@@ -727,6 +727,7 @@ function doLogin(){
     document.getElementById('app-hdr').style.display='block';
     document.getElementById('fabRow').style.display='flex';
     // pData load karo (IndexedDB se) Firebase connect SE PEHLE — taaki merge/push race na ho
+    requestPersistentStorage();
     loadData().then(()=>tryAutoConnectFB());
     pgUpdateOfflineBanner(); // offline banner state set karo
   } else {
@@ -744,6 +745,28 @@ const IDB_NAME='peshgar_db';
 const IDB_STORE='kv';
 const IDB_DATA_KEY='pm_data';
 let _idb=null;
+
+
+// ═══ PERSISTENT STORAGE — data ko browser eviction se bachao ═══
+// Bina iske browser IndexedDB ko "best-effort" maanta hai: phone ka storage
+// kam pade, browser data saaf ho, ya OS space khaali kare — to poora local
+// data CHUP-CHAAP mit sakta hai. Yehi wajah thi ki Peshgar ka purana kaam
+// ek din "gayab" ho gaya tha. persist() maangne par browser data ko
+// "durable" mark kar deta hai aur automatic eviction se bachaata hai.
+// Chup-chaap chalta hai — na mile to bhi app normal chalti rehti hai.
+async function requestPersistentStorage(){
+  try{
+    if(!navigator.storage||!navigator.storage.persist)return null;
+    if(navigator.storage.persisted){
+      const already=await navigator.storage.persisted();
+      if(already)return true;
+    }
+    const ok=await navigator.storage.persist();
+    console.log(ok?'✅ Storage persistent — data browser se evict nahi hoga'
+                 :'⚠️ Storage persist nahi mila — app ko home-screen pe "Add to Home screen" karo, phir milne ke chance kaafi badh jaate hain');
+    return ok;
+  }catch(e){console.error('requestPersistentStorage:',e);return null;}
+}
 
 function openIDB(){
   return new Promise((res,rej)=>{
@@ -857,6 +880,9 @@ function fmtDateLabel(iso){
 }
 function selectDate(date){
   activeDate=date;
+  // Date badalte hi us date ka live listener bhi switch karo — taaki doosre
+  // phone ka kaam usi date pe turant dikhe
+  try{if(typeof pgStartSelfListen==='function')pgStartSelfListen(date);}catch(e){}
   renderDatePills();
   const hdl=document.getElementById('hdr-date-label'); if(hdl)hdl.textContent=fmtDateLabel(date);
   const sdl=document.getElementById('selectedDateLabel'); if(sdl)sdl.textContent=fmtDateLabel(date);
@@ -883,6 +909,49 @@ function pgSchedulePush(date){
   clearTimeout(_pgPushTimer);
   _pgPushTimer=setTimeout(()=>flushPgPush(),1500);
 }
+// MERGE-BEFORE-PUSH — doosre phone ka kaam mitne se bachao
+// PEHLE BUG: yahan seedha .set() hota tha, jo POORA date-document REPLACE
+// kar deta hai. Agar Peshgar app do phone pe chal rahi ho (ya ek phone ka
+// local data saaf hokar dobara khula ho), to jis phone ne baad mein push
+// kiya uska data doosre ka SAARA kaam Firebase se mita deta tha — chup-chaap,
+// bina kisi warning ke.
+// Ab: likhne se PEHLE remote doc padhte hain aur dono ka kaam JOD kar likhte
+// hain. Rule seedha hai — jahan local khali hai aur remote mein kaam hai,
+// wahan remote wala rakh lo. Local ka bhara hua kaam kabhi nahi hatta.
+async function pgMergeWithRemote(date,localSlim){
+  try{
+    const snap=await _fbDb.collection('peshgar').doc(date).get();
+    if(!snap.exists)return localSlim;
+    const remote=cfmFromFirebase(snap.data());
+    if(!Array.isArray(remote)||!remote.length)return localSlim;
+    const byCase=new Map();
+    localSlim.forEach(r=>{const k=String(r.caseno).toUpperCase().trim();if(k)byCase.set(k,{...r});});
+    let merged=0,added=0;
+    remote.forEach(rr=>{
+      const k=String(rr.caseno||'').toUpperCase().trim();
+      if(!k)return;
+      const hasWork=(rr.received||rr.sentToOffice||(rr.location&&rr.location!=='office'));
+      const cur=byCase.get(k);
+      if(!cur){
+        // Ye case is phone ki list mein hai hi nahi — doosre phone ka kaam hai, bacha lo
+        if(hasWork){byCase.set(k,{...rr});added++;}
+        return;
+      }
+      // Sirf KHALI jagah bharo — local ka kaam kabhi overwrite mat karo
+      let touched=false;
+      if(!cur.received&&rr.received){cur.received=rr.received;touched=true;}
+      if(!cur.sentToOffice&&rr.sentToOffice){cur.sentToOffice=rr.sentToOffice;touched=true;}
+      if((!cur.location||cur.location==='office')&&rr.location&&rr.location!=='office'){cur.location=rr.location;touched=true;}
+      if(touched)merged++;
+    });
+    if(merged||added)console.log('pgMerge '+date+': '+merged+' file(s) mein doosre device ka kaam joda, '+added+' nayi file(s) bachayi');
+    return [...byCase.values()];
+  }catch(e){
+    // Remote padh nahi paye — TAB BHI overwrite mat karo, is baar push skip karo
+    console.warn('pgMergeWithRemote fail, push skip:',e);
+    return null;
+  }
+}
 async function flushPgPush(){
   if(!_fbDb||!navigator.onLine)return; // net/firebase nahi — queue mein rehne do
   const dates=[..._pgPendingDates];
@@ -890,7 +959,9 @@ async function flushPgPush(){
     try{
       const rows=getDateRows(date);
       const slim=rows.map(r=>({caseno:r.caseno,received:r.received||'',sentToOffice:r.sentToOffice||'',location:r.location||''}));
-      await _fbDb.collection('peshgar').doc(date).set(pgToFirebase(slim));
+      const merged=await pgMergeWithRemote(date,slim);
+      if(merged===null)continue;                 // remote read fail — retry queue mein rehne do
+      await _fbDb.collection('peshgar').doc(date).set(pgToFirebase(merged));
       _pgPendingDates.delete(date); // successfully pushed
     }catch(e){console.warn('pgPush retry pending:',e);}
   }
@@ -1927,10 +1998,60 @@ async function fbInit(cfg){
     _fbDb=firebase.firestore();
     setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
     fbStartListen();
+    if(typeof activeDate!=='undefined'&&activeDate)pgStartSelfListen(activeDate);
     startPeriodicSync(); // continuous sync chालू karo
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
 let _unparsedDocs=0; // version-mismatch detection: kitne CFM docs padhe nahi ja sake
+// ═══ APNE data ka LIVE listener — multi-device sync ═══
+// Pehle PG apna kaam Firebase pe BHEJTA to tha, par kabhi WAPAS SUNTA nahi tha.
+// Matlab agar Peshgar app do phone pe chal rahi ho, to ek phone ka kaam doosre
+// pe apne aap nahi aata tha — dobara "Mera Kaam Wapas Laao" dabana padta tha.
+// Ab peshgar/{date} pe live listener hai: doosre phone ka kaam turant dikh
+// jaata hai. Merge hamesha ADDITIVE hai — is phone ka bhara hua kaam kabhi
+// overwrite nahi hota, sirf khali jagah bharti hai.
+let _pgSelfUnsub=null;
+function pgStartSelfListen(date){
+  if(!_fbDb||!date)return;
+  if(_pgSelfUnsub){_pgSelfUnsub();_pgSelfUnsub=null;}
+  _pgSelfUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
+    try{
+      if(!snap.exists)return;
+      const remote=cfmFromFirebase(snap.data());
+      if(!Array.isArray(remote)||!remote.length)return;
+      const local=getDateRows(date);
+      const lmap=new Map(local.map(r=>[String(r.caseno).toUpperCase().trim(),r]));
+      let changed=0,addedRows=0;
+      remote.forEach(rr=>{
+        const k=String(rr.caseno||'').toUpperCase().trim();
+        if(!k)return;
+        const hasWork=(rr.received||rr.sentToOffice||(rr.location&&rr.location!=='office'));
+        const lr=lmap.get(k);
+        if(!lr){
+          if(!hasWork)return;
+          local.push({srno:String(local.length+1),caseno:k,partyname:'',section:'',ps:'',
+            sentStatus:'',remark:'',received:rr.received||'',receiveddate:'',
+            sentToOffice:rr.sentToOffice||'',sentToOfficeDate:'',location:rr.location||'office'});
+          addedRows++;return;
+        }
+        // Sirf khali jagah bharo — is phone ka kaam kabhi mat mitao
+        if(!lr.received&&rr.received){lr.received=rr.received;changed++;}
+        if(!lr.sentToOffice&&rr.sentToOffice){lr.sentToOffice=rr.sentToOffice;changed++;}
+        if((!lr.location||lr.location==='office')&&rr.location&&rr.location!=='office'){lr.location=rr.location;changed++;}
+      });
+      if(changed||addedRows){
+        const idx=pData.dates.findIndex(x=>x.date===date);
+        if(idx===-1){pData.dates.push({date,rows:local});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));}
+        else pData.dates[idx].rows=local;
+        saveData();
+        if(activeDate===date){drawTable();}
+        updateDash();
+        console.log('pgSelfListen '+date+': '+changed+' update, '+addedRows+' nayi row (doosre device se)');
+      }
+    }catch(e){console.error('pgStartSelfListen:',e);}
+  },err=>{console.warn('pgSelfListen error:',err&&err.message);});
+}
+
 function fbStartListen(){
   if(!_fbDb)return;
   if(_fbUnsub)_fbUnsub();
