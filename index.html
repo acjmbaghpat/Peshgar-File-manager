@@ -741,7 +741,8 @@ function doLogin(){
     // pData load karo (IndexedDB se) Firebase connect SE PEHLE — taaki merge/push race na ho
     requestPersistentStorage();
     loadData().then(()=>{
-      try{migratePlainDateBuckets();}catch(e){}
+      try{repairVersionBuckets();}catch(e){}
+      try{_pgVerFilter=localStorage.getItem('pg_ver_filter')||'all';if(_pgVerFilter!=='all')_pgVerFilter=parseInt(_pgVerFilter,10)||'all';}catch(e){}
       try{renderVersionPicker();}catch(e){}
       tryAutoConnectFB();
     });
@@ -765,24 +766,6 @@ const IDB_DATA_KEY='pm_data';
 // ka apna version hota hai (1, 2, 3...). Peshgar mein ab har version alag bucket
 // mein rakha jaata hai — key "date__vN" — taaki aap khud chun sako ki KIS upload
 // par kaam karna hai, aur do uploads ka data aapas mein ghul-mil na jaaye.
-let _pgVersions=(()=>{try{return JSON.parse(localStorage.getItem('pg_versions')||'{}')||{};}catch(e){return {};}})();
-function _savePgVersions(){try{localStorage.setItem('pg_versions',JSON.stringify(_pgVersions));}catch(e){}}
-function _pgVerKey(date,ver){return date+'__v'+(ver||1);}
-function _pgSplitKey(key){
-  const m=String(key||'').match(/^(\d{4}-\d{2}-\d{2})__v(\d+)$/);
-  if(m)return {date:m[1],ver:parseInt(m[2],10)};
-  return {date:String(key||''),ver:1};   // purana (bina version) data
-}
-let _idb=null;
-
-
-// ═══ PERSISTENT STORAGE — data ko browser eviction se bachao ═══
-// Bina iske browser IndexedDB ko "best-effort" maanta hai: phone ka storage
-// kam pade, browser data saaf ho, ya OS space khaali kare — to poora local
-// data CHUP-CHAAP mit sakta hai. Yehi wajah thi ki Peshgar ka purana kaam
-// ek din "gayab" ho gaya tha. persist() maangne par browser data ko
-// "durable" mark kar deta hai aur automatic eviction se bachaata hai.
-// Chup-chaap chalta hai — na mile to bhi app normal chalti rehti hai.
 async function requestPersistentStorage(){
   try{
     if(!navigator.storage||!navigator.storage.persist)return null;
@@ -796,7 +779,6 @@ async function requestPersistentStorage(){
     return ok;
   }catch(e){console.error('requestPersistentStorage:',e);return null;}
 }
-
 function openIDB(){
   return new Promise((res,rej)=>{
     if(_idb){res(_idb);return;}
@@ -807,16 +789,6 @@ function openIDB(){
     };
     req.onsuccess=e=>{_idb=e.target.result;res(_idb);};
     req.onerror=e=>rej(e.target.error);
-  });
-}
-function idbGet(key){
-  return new Promise((res,rej)=>{
-    openIDB().then(db=>{
-      const tx=db.transaction(IDB_STORE,'readonly');
-      const r=tx.objectStore(IDB_STORE).get(key);
-      r.onsuccess=()=>res(r.result);
-      r.onerror=e=>rej(e.target.error);
-    }).catch(rej);
   });
 }
 function idbSet(key,val){
@@ -830,9 +802,16 @@ function idbSet(key,val){
     }).catch(rej);
   });
 }
-
-// Debounced save — multiple rapid setDateRows() = single IDB write
-let _saveTimer=null;
+function idbGet(key){
+  return new Promise((res,rej)=>{
+    openIDB().then(db=>{
+      const tx=db.transaction(IDB_STORE,'readonly');
+      const r=tx.objectStore(IDB_STORE).get(key);
+      r.onsuccess=()=>res(r.result);
+      r.onerror=e=>rej(e.target.error);
+    }).catch(rej);
+  });
+}
 function saveData(){
   clearTimeout(_saveTimer);
   _saveTimer=setTimeout(()=>{
@@ -842,7 +821,6 @@ function saveData(){
     });
   },300);
 }
-
 async function loadData(){
   try{
     // 1. Try IndexedDB first
@@ -884,8 +862,11 @@ async function loadData(){
   }
   updateDash();
 }
-
-// ══ DATE MANAGEMENT ══
+function renderDatePills(){
+  // Pills removed — just update header date label
+  const hdl=document.getElementById('hdr-date-label');
+  if(hdl&&activeDate)hdl.textContent=fmtDateLabel(activeDate);
+}
 function addManualDate(val){
   if(!val)return;
   const exists=pData.dates.find(d=>d.date===val);
@@ -896,93 +877,106 @@ function addManualDate(val){
   }
   selectDate(val);
 }
-
-function renderDatePills(){
-  // Pills removed — just update header date label
-  const hdl=document.getElementById('hdr-date-label');
-  if(hdl&&activeDate)hdl.textContent=fmtDateLabel(activeDate);
-}
 function fmtDateLabel(iso){
   if(!iso)return'—';
-  const p=_pgSplitKey(iso);
-  const [y,m,d]=p.date.split('-');
+  const [y,m,d]=String(iso).split('-');
   if(!y||!m||!d)return String(iso);
   return`${d}-${m}-${y.slice(2)}`;
 }
-// ═══ UPLOAD (VERSION) PICKER ═══
-// ═══ EK-BAAR KI MIGRATION — purana data naye bucket-format mein ═══
-// Update se pehle ka saara data plain date-key ("2026-08-05") par pada hai.
-// Naya format "2026-08-05__v1" hai. Bina migration ke purana data alag pada
-// reh jaata aur upload-picker mein uske files count hi nahi hote.
-// SAFETY: kuch delete nahi hota — plain bucket ka data v1 bucket mein JOD diya
-// jaata hai, aur jahan v1 mein pehle se kuch hai wahan uska kaam bacha rehta hai.
-function migratePlainDateBuckets(){
+// ═══ REPAIR — bucket-key wale toote data ko wapas theek karo ═══
+// Ek update mein maine galti se har upload ko alag key ("2026-08-05__v3") par
+// rakh diya tha. Poori app plain date-key par bani hai (overdue, sync, push),
+// isliye us format se overdue mein garbage numbers aur data-mismatch ho gaya.
+// Ye function wo data wapas plain date par le aata hai.
+// SAFETY: kuch delete nahi hota — sab JOD kar plain date par aata hai, aur
+// Peshgar ka apna kaam (received / office / location) kabhi overwrite nahi hota.
+function repairVersionBuckets(){
   try{
     if(!pData||!Array.isArray(pData.dates))return;
-    const plain=pData.dates.filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d.date));
-    if(!plain.length)return;
-    let moved=0;
-    plain.forEach(pb=>{
-      const vkey=pb.date+'__v1';
-      const idx=pData.dates.findIndex(x=>x.date===vkey);
-      if(idx===-1){
-        pData.dates.push({date:vkey,rows:pb.rows});
-      }else{
-        // v1 pehle se hai — plain ka kaam usme JODO (overwrite mat karo)
-        const tgt=pData.dates[idx].rows;
-        const m=new Map(tgt.map(r=>[String(r.caseno).toUpperCase().trim(),r]));
-        pb.rows.forEach(r=>{
-          const cn=String(r.caseno||'').toUpperCase().trim();
-          if(!cn)return;
-          const ex=m.get(cn);
-          if(!ex){tgt.push(r);return;}
-          if(!ex.received&&r.received){ex.received=r.received;ex.receiveddate=r.receiveddate||ex.receiveddate;}
-          if(!ex.sentToOffice&&r.sentToOffice)ex.sentToOffice=r.sentToOffice;
-          if((!ex.location||ex.location==='office')&&r.location&&r.location!=='office')ex.location=r.location;
-        });
-      }
-      moved++;
-      if(!_pgVersions[pb.date])_pgVersions[pb.date]=[];
-      if(!_pgVersions[pb.date].includes(1)){_pgVersions[pb.date].push(1);_pgVersions[pb.date].sort((a,b)=>a-b);}
+    const bad=pData.dates.filter(d=>/^\d{4}-\d{2}-\d{2}__v\d+$/.test(d.date));
+    if(!bad.length)return;
+    let fixed=0;
+    bad.forEach(b=>{
+      const m=b.date.match(/^(\d{4}-\d{2}-\d{2})__v(\d+)$/);
+      const date=m[1], ver=parseInt(m[2],10)||1;
+      let tgt=pData.dates.find(x=>x.date===date);
+      if(!tgt){tgt={date,rows:[]};pData.dates.push(tgt);}
+      const map=new Map(tgt.rows.map(r=>[String(r.caseno).toUpperCase().trim(),r]));
+      (b.rows||[]).forEach(r=>{
+        const cn=String(r.caseno||'').toUpperCase().trim();
+        if(!cn)return;
+        const ex=map.get(cn);
+        if(!ex){ r._cfmVer=r._cfmVer||ver; tgt.rows.push(r); map.set(cn,r); return; }
+        // Peshgar ka kaam JODO — kabhi overwrite mat karo
+        if(!ex.received&&r.received){ex.received=r.received;ex.receiveddate=r.receiveddate||ex.receiveddate;}
+        if(!ex.sentToOffice&&r.sentToOffice){ex.sentToOffice=r.sentToOffice;ex.sentToOfficeDate=r.sentToOfficeDate||ex.sentToOfficeDate;}
+        if((!ex.location||ex.location==='office')&&r.location&&r.location!=='office')ex.location=r.location;
+        if(!ex.partyname&&r.partyname)ex.partyname=r.partyname;
+        if(ex._cfmVer===undefined&&r._cfmVer!==undefined)ex._cfmVer=r._cfmVer;
+        // CFM ke status fields — jo naye version se aaye wahi rakho
+        if(ver>=(ex._cfmVer||0)){
+          ex._cfmVer=ver;
+          if(r.sentStatus!==undefined)ex.sentStatus=r.sentStatus;
+          if(r._cfmSent!==undefined)ex._cfmSent=r._cfmSent;
+          if(r._cfmSentdate!==undefined)ex._cfmSentdate=r._cfmSentdate;
+          if(r._cfmReceived!==undefined)ex._cfmReceived=r._cfmReceived;
+          if(r._cfmReceiveddate!==undefined)ex._cfmReceiveddate=r._cfmReceiveddate;
+          if(r._cfmDisposed!==undefined)ex._cfmDisposed=r._cfmDisposed;
+          if(r._cfmPendingPrev!==undefined)ex._cfmPendingPrev=r._cfmPendingPrev;
+        }
+      });
+      fixed++;
     });
-    // Ab plain buckets hata do (unka data v1 mein ja chuka hai)
-    pData.dates=pData.dates.filter(d=>!/^\d{4}-\d{2}-\d{2}$/.test(d.date));
+    pData.dates=pData.dates.filter(d=>!/^\d{4}-\d{2}-\d{2}__v\d+$/.test(d.date));
     pData.dates.sort((a,b)=>b.date.localeCompare(a.date));
-    if(activeDate&&/^\d{4}-\d{2}-\d{2}$/.test(activeDate))activeDate=activeDate+'__v1';
-    _savePgVersions();saveData();
-    console.log('migratePlainDateBuckets: '+moved+' purani date(s) v1 bucket mein migrate hui');
-  }catch(e){console.error('migratePlainDateBuckets:',e);}
+    if(activeDate&&/__v\d+$/.test(activeDate))activeDate=activeDate.replace(/__v\d+$/,'');
+    saveData();
+    console.log('repairVersionBuckets: '+fixed+' toote bucket(s) wapas plain date par le aaye');
+    if(typeof showToast==='function')showToast('✅ Data theek kar diya gaya ('+fixed+' entries) — ab sab normal hai');
+  }catch(e){console.error('repairVersionBuckets:',e);}
 }
-
+// ═══ UPLOAD (VERSION) PICKER — sirf DIKHANE ka filter ═══
+// Storage bilkul nahi badalta — sab kuch plain date par hi rehta hai. Ye sirf
+// tay karta hai ki table mein kis upload ki files dikhein. "Sabhi" default hai.
+let _pgVerFilter='all';   // 'all' ya version-number
+function pgVersionsForDate(date){
+  const vs=new Set();
+  getDateRows(date).forEach(r=>{ if(r._cfmVer!==undefined&&r._cfmVer!==null)vs.add(r._cfmVer); });
+  return [...vs].sort((a,b)=>a-b);
+}
 function renderVersionPicker(){
   const sel=document.getElementById('pgVerSelect');
   const wrap=document.getElementById('pgVerWrap');
   if(!sel||!wrap)return;
-  const cur=_pgSplitKey(activeDate);
-  // Is date ke wahi versions dikhao jinka data sach mein maujood hai
-  const have=(pData.dates||[]).map(d=>_pgSplitKey(d.date)).filter(p=>p.date===cur.date).map(p=>p.ver);
-  const known=(_pgVersions[cur.date]||[]).filter(v=>have.includes(v));
-  const vers=[...new Set(known.length?known:have)].sort((a,b)=>a-b);
-  // Ek hi upload ho tab bhi DIKHAO — taaki hamesha pata rahe ki kaunse upload
-  // ka data saamne hai. (Pehle 2+ hone par hi dikhta tha, isliye lagta tha ki
-  // option hai hi nahi.)
-  if(!vers.length){wrap.style.display='none';sel.innerHTML='';return;}
+  if(!activeDate){wrap.style.display='none';return;}
+  const rows=getDateRows(activeDate);
+  const vers=pgVersionsForDate(activeDate);
+  if(!rows.length){wrap.style.display='none';sel.innerHTML='';return;}
   wrap.style.display='';
   const hint=document.getElementById('pgVerHint');
   if(hint)hint.textContent = vers.length>1
-    ? 'Is date ke '+vers.length+' upload hain — chuno kis par kaam karna hai'
-    : 'Is date ka abhi sirf 1 upload aaya hai';
-  sel.innerHTML=vers.map(v=>{
-    const rows=getDateRows(_pgVerKey(cur.date,v));
-    const sent=rows.filter(r=>r.sentStatus==='Sent').length;
-    return `<option value="${v}"${v===cur.ver?' selected':''}>Upload ${v} — ${rows.length} files, ${sent} sent</option>`;
-  }).join('');
+    ? 'Is date ke '+vers.length+' upload aaye hain — chuno kaunsa dekhna hai'
+    : (vers.length===1?'Is date ka Upload '+vers[0]+' aaya hai':'Upload info abhi nahi aayi');
+  let h='<option value="all"'+(_pgVerFilter==='all'?' selected':'')+'>Sabhi uploads — '+rows.length+' files</option>';
+  vers.forEach(v=>{
+    const n=rows.filter(r=>r._cfmVer===v).length;
+    const sent=rows.filter(r=>r._cfmVer===v&&r.sentStatus==='Sent').length;
+    h+='<option value="'+v+'"'+(String(_pgVerFilter)===String(v)?' selected':'')+'>Upload '+v+' — '+n+' files, '+sent+' sent</option>';
+  });
+  sel.innerHTML=h;
 }
 function switchVersion(v){
-  const cur=_pgSplitKey(activeDate);
-  const key=_pgVerKey(cur.date,parseInt(v,10)||1);
-  selectDate(key);
-  showToast('📄 Upload '+v+' — '+getDateRows(key).length+' files');
+  _pgVerFilter=(v==='all')?'all':(parseInt(v,10)||'all');
+  try{localStorage.setItem('pg_ver_filter',String(_pgVerFilter));}catch(e){}
+  drawTable();updateDash();renderVersionPicker();
+  showToast(v==='all'?'📄 Sabhi uploads dikha rahe hain':'📄 Upload '+v+' dikha rahe hain');
+}
+// Table ke liye rows — picker ke hisaab se filter
+function pgVisibleRows(date){
+  const rows=getDateRows(date);
+  if(_pgVerFilter==='all')return rows;
+  const f=rows.filter(r=>String(r._cfmVer)===String(_pgVerFilter));
+  return f.length?f:rows;   // filter se sab gayab ho jaye to sab dikha do
 }
 function selectDate(date){
   activeDate=date;
@@ -1061,33 +1055,15 @@ async function pgMergeWithRemote(date,localSlim){
 }
 async function flushPgPush(){
   if(!_fbDb||!navigator.onLine)return; // net/firebase nahi — queue mein rehne do
-  const keys=[..._pgPendingDates];
-  // Ek hi date ke alag-alag upload (version) buckets ko Firebase ke liye EK doc
-  // mein jodna padta hai: Firestore par peshgar/{YYYY-MM-DD} hi hota hai (rules
-  // bhi wahi allow karti hain, aur Court Manager wahi padhta hai). Bucket-key
-  // "date__vN" sirf is app ke andar ka storage-tarika hai.
-  const byDate={};
-  keys.forEach(k=>{const d=_pgSplitKey(k).date;(byDate[d]=byDate[d]||[]).push(k);});
-  for(const date of Object.keys(byDate)){
+  const dates=[..._pgPendingDates];
+  for(const date of dates){
     try{
-      // Us date ke SAARE version-buckets ka kaam ek saath — case-wise merge
-      const m=new Map();
-      byDate[date].forEach(k=>{
-        getDateRows(k).forEach(r=>{
-          const cn=String(r.caseno||'').toUpperCase().trim();
-          if(!cn)return;
-          const cur=m.get(cn)||{caseno:r.caseno,received:'',sentToOffice:'',location:''};
-          if(!cur.received&&r.received)cur.received=r.received;
-          if(!cur.sentToOffice&&r.sentToOffice)cur.sentToOffice=r.sentToOffice;
-          if((!cur.location||cur.location==='office')&&r.location&&r.location!=='office')cur.location=r.location;
-          m.set(cn,cur);
-        });
-      });
-      const slim=[...m.values()];
+      const rows=getDateRows(date);
+      const slim=rows.map(r=>({caseno:r.caseno,received:r.received||'',sentToOffice:r.sentToOffice||'',location:r.location||''}));
       const merged=await pgMergeWithRemote(date,slim);
       if(merged===null)continue;                 // remote read fail — retry queue mein rehne do
       await _fbDb.collection('peshgar').doc(date).set(pgToFirebase(merged));
-      byDate[date].forEach(k=>_pgPendingDates.delete(k)); // successfully pushed
+      _pgPendingDates.delete(date); // successfully pushed
     }catch(e){console.warn('pgPush retry pending:',e);}
   }
 }
@@ -1288,7 +1264,8 @@ function updateDash(){
 // ══ TABLE ══
 function getFilteredRows(){
   if(!activeDate)return[];
-  let rows=getDateRows(activeDate);
+  // Upload-picker ka filter sabse pehle (sirf dikhane ke liye — data nahi badalta)
+  let rows=(typeof pgVisibleRows==="function")?pgVisibleRows(activeDate):getDateRows(activeDate);
   // Filter
   if(activeFilter==='pending')rows=rows.filter(r=>r.sentStatus==='Sent'); // CM Sent files
   else if(activeFilter==='rcv')rows=rows.filter(r=>r.received==='Received');
@@ -2136,18 +2113,15 @@ let _unparsedDocs=0; // version-mismatch detection: kitne CFM docs padhe nahi ja
 // jaata hai. Merge hamesha ADDITIVE hai — is phone ka bhara hua kaam kabhi
 // overwrite nahi hota, sirf khali jagah bharti hai.
 let _pgSelfUnsub=null;
-function pgStartSelfListen(dateOrKey){
-  if(!_fbDb||!dateOrKey)return;
-  // Firebase par sirf plain date hoti hai — bucket-key se date nikaal lo
-  const date=_pgSplitKey(dateOrKey).date;
-  const bkey=dateOrKey;
+function pgStartSelfListen(date){
+  if(!_fbDb||!date)return;
   if(_pgSelfUnsub){_pgSelfUnsub();_pgSelfUnsub=null;}
   _pgSelfUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
     try{
       if(!snap.exists)return;
       const remote=cfmFromFirebase(snap.data());
       if(!Array.isArray(remote)||!remote.length)return;
-      const local=getDateRows(bkey);
+      const local=getDateRows(date);
       const lmap=new Map(local.map(r=>[String(r.caseno).toUpperCase().trim(),r]));
       let changed=0,addedRows=0;
       remote.forEach(rr=>{
@@ -2168,11 +2142,11 @@ function pgStartSelfListen(dateOrKey){
         if((!lr.location||lr.location==='office')&&rr.location&&rr.location!=='office'){lr.location=rr.location;changed++;}
       });
       if(changed||addedRows){
-        const idx=pData.dates.findIndex(x=>x.date===bkey);
-        if(idx===-1){pData.dates.push({date:bkey,rows:local});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));}
+        const idx=pData.dates.findIndex(x=>x.date===date);
+        if(idx===-1){pData.dates.push({date,rows:local});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));}
         else pData.dates[idx].rows=local;
         saveData();
-        if(activeDate===bkey){drawTable();}
+        if(activeDate===date){drawTable();}
         updateDash();
         console.log('pgSelfListen '+date+': '+changed+' update, '+addedRows+' nayi row (doosre device se)');
       }
@@ -2195,16 +2169,6 @@ function fbStartListen(){
     // Manager jaisa), aur us date ki purani-version wali files hata di jaati hain.
     const changes=snap.docChanges();
     if(changes.length>0&&snap.size>0){
-      // Har date ke SAARE versions yaad rakho — user khud chunega kaunsa dekhna hai
-      snap.docs.forEach(doc=>{
-        const k=doc.id;
-        if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))return;
-        const [dt,v]=k.split('_');
-        const n=parseInt(v,10)||1;
-        const list=_pgVersions[dt]||(_pgVersions[dt]=[]);
-        if(!list.includes(n)){list.push(n);list.sort((a,b)=>a-b);}
-      });
-      _savePgVersions();
       changes.forEach(ch=>{
         if(ch.type==='removed')return;
         const key=ch.doc.id;
@@ -2358,14 +2322,12 @@ async function pgRestoreMyWork(){
 }
 
 function mergeFbData(date,fbRows,fbVer){
-  // MULTI-UPLOAD: Court Manager mein ek hi date par kai upload (version) ho sakte
-  // hain — 2026-08-05_1, _2, _3. Pehle yahan sab ek hi date-bucket mein mil jaate
-  // the, isliye Peshgar mein sab GHUL-MIL jaata tha aur pata hi nahi chalta tha
-  // konsa upload dekh rahe ho. Ab har version apne alag bucket mein rehta hai
-  // (key = "date__vN") aur user upar se chunta hai konsa dekhna hai.
+  // MULTI-UPLOAD: ek hi date par CFM mein kai upload (version) ho sakte hain.
+  // Storage-key HAMESHA plain date rehti hai (poori app usi par bani hai —
+  // overdue, sync, push sab). Version ki pehchaan ROW par rakhi jaati hai
+  // (_cfmVer), aur upar picker se sirf DIKHANE ke liye filter hota hai.
   const ver=(fbVer===undefined||fbVer===null)?1:fbVer;
-  const bkey=_pgVerKey(date,ver);
-  let localRows=getDateRows(bkey);
+  let localRows=getDateRows(date);
   const localMap=new Map(localRows.map(r=>[String(r.caseno).toUpperCase(),r]));
   let changed=false;
 
@@ -2383,6 +2345,7 @@ function mergeFbData(date,fbRows,fbVer){
     // CFM ka EXACT pending/overdue flag — jo CFM ne calculate karke bheja (ditto same dikhana hai)
     const cfmPendingPrev=fr._pendingPrev||null;
     if(existing){
+      if(existing._cfmVer!==ver){existing._cfmVer=ver;changed=true;}   // is row ka upload-number
       if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
       // CFM ke raw fields store karo (har sync pe update)
       existing._cfmSent=cfmSent;
@@ -2407,6 +2370,7 @@ function mergeFbData(date,fbRows,fbVer){
         section:fr.section||'',
         ps:fr.ps||'',
         sentStatus:newSentStatus,
+        _cfmVer:ver,
         remark:fr.remark||'',
         received:'',receiveddate:'',
         sentToOffice:'',sentToOfficeDate:'',
@@ -2426,17 +2390,15 @@ function mergeFbData(date,fbRows,fbVer){
     // setDateRows ke bajaye direct save — kyunki yahan CFM ke fields (sentStatus, _cfmPendingPrev)
     // update hue hain, Peshgar ke apne fields (received/location) nahi. Push wapas karne se
     // unnecessary sync traffic banta (CFM update → Peshgar receive → Peshgar push back loop).
-    const idx=pData.dates.findIndex(x=>x.date===bkey);
-    if(idx===-1){pData.dates.push({date:bkey,rows:localRows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));}
+    const idx=pData.dates.findIndex(x=>x.date===date);
+    if(idx===-1){pData.dates.push({date,rows:localRows});pData.dates.sort((a,b)=>b.date.localeCompare(a.date));}
     else pData.dates[idx].rows=localRows;
     saveData(); // sirf local save, push nahi
     const todayISO=_localISO(new Date());
-    // Auto-select — pehle aaj ki date ka LATEST upload prefer karo
     if(!activeDate){
-      const todayBuckets=(pData.dates||[]).map(d=>d.date).filter(k=>_pgSplitKey(k).date===todayISO);
-      if(todayBuckets.length)selectDate(todayBuckets.sort()[todayBuckets.length-1]);
+      if(pData.dates.some(d=>d.date===todayISO))selectDate(todayISO);
       else{const all=(pData.dates||[]).map(d=>d.date).sort().reverse();if(all.length)selectDate(all[0]);}
-    } else if(bkey===activeDate){
+    } else if(date===activeDate){
       drawTable();updateDash();
     }
     const newSentCount=localRows.filter(r=>r.sentStatus==='Sent').length;
