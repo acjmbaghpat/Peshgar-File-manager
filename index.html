@@ -356,10 +356,6 @@ button:active{transform:scale(.97)}
       <div>
         <div class="hdr-title">Peshgar Manager</div>
         <div class="hdr-sub" id="hdr-date-label">—</div>
-        <div id="pgVerWrap" style="display:none;margin-top:4px">
-          <select id="pgVerSelect" onchange="switchVersion(this.value)"
-            style="font-size:11px;padding:3px 8px;border-radius:14px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;font-weight:700;max-width:210px"></select>
-        </div>
       </div>
     </div>
     <div class="hdr-actions">
@@ -384,6 +380,18 @@ button:active{transform:scale(.97)}
 <!-- ════════════ FILES TAB ════════════ -->
 <div class="tab-c on" id="tab-files">
   <div class="cnt">
+
+    <!-- UPLOAD (VERSION) PICKER — kaunsa CFM upload dekh rahe ho -->
+    <div id="pgVerWrap" style="display:none;background:var(--sur);border:1.5px solid var(--bdr);border-radius:12px;padding:11px 13px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;font-weight:800;color:var(--mu);letter-spacing:.5px;text-transform:uppercase">📄 CFM Upload</div>
+          <div style="font-size:11px;color:var(--mu);margin-top:2px" id="pgVerHint">Kis upload par kaam karna hai</div>
+        </div>
+        <select id="pgVerSelect" onchange="switchVersion(this.value)"
+          style="font-size:14px;padding:9px 12px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--bg);color:var(--txt);font-weight:700;min-width:190px;flex:1"></select>
+      </div>
+    </div>
 
     <!-- Stats -->
     <div class="stats-grid">
@@ -732,7 +740,11 @@ function doLogin(){
     document.getElementById('fabRow').style.display='flex';
     // pData load karo (IndexedDB se) Firebase connect SE PEHLE — taaki merge/push race na ho
     requestPersistentStorage();
-    loadData().then(()=>tryAutoConnectFB());
+    loadData().then(()=>{
+      try{migratePlainDateBuckets();}catch(e){}
+      try{renderVersionPicker();}catch(e){}
+      tryAutoConnectFB();
+    });
     pgUpdateOfflineBanner(); // offline banner state set karo
   } else {
     document.getElementById('lerr').textContent='❌ Galat password';
@@ -898,6 +910,50 @@ function fmtDateLabel(iso){
   return`${d}-${m}-${y.slice(2)}`;
 }
 // ═══ UPLOAD (VERSION) PICKER ═══
+// ═══ EK-BAAR KI MIGRATION — purana data naye bucket-format mein ═══
+// Update se pehle ka saara data plain date-key ("2026-08-05") par pada hai.
+// Naya format "2026-08-05__v1" hai. Bina migration ke purana data alag pada
+// reh jaata aur upload-picker mein uske files count hi nahi hote.
+// SAFETY: kuch delete nahi hota — plain bucket ka data v1 bucket mein JOD diya
+// jaata hai, aur jahan v1 mein pehle se kuch hai wahan uska kaam bacha rehta hai.
+function migratePlainDateBuckets(){
+  try{
+    if(!pData||!Array.isArray(pData.dates))return;
+    const plain=pData.dates.filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d.date));
+    if(!plain.length)return;
+    let moved=0;
+    plain.forEach(pb=>{
+      const vkey=pb.date+'__v1';
+      const idx=pData.dates.findIndex(x=>x.date===vkey);
+      if(idx===-1){
+        pData.dates.push({date:vkey,rows:pb.rows});
+      }else{
+        // v1 pehle se hai — plain ka kaam usme JODO (overwrite mat karo)
+        const tgt=pData.dates[idx].rows;
+        const m=new Map(tgt.map(r=>[String(r.caseno).toUpperCase().trim(),r]));
+        pb.rows.forEach(r=>{
+          const cn=String(r.caseno||'').toUpperCase().trim();
+          if(!cn)return;
+          const ex=m.get(cn);
+          if(!ex){tgt.push(r);return;}
+          if(!ex.received&&r.received){ex.received=r.received;ex.receiveddate=r.receiveddate||ex.receiveddate;}
+          if(!ex.sentToOffice&&r.sentToOffice)ex.sentToOffice=r.sentToOffice;
+          if((!ex.location||ex.location==='office')&&r.location&&r.location!=='office')ex.location=r.location;
+        });
+      }
+      moved++;
+      if(!_pgVersions[pb.date])_pgVersions[pb.date]=[];
+      if(!_pgVersions[pb.date].includes(1)){_pgVersions[pb.date].push(1);_pgVersions[pb.date].sort((a,b)=>a-b);}
+    });
+    // Ab plain buckets hata do (unka data v1 mein ja chuka hai)
+    pData.dates=pData.dates.filter(d=>!/^\d{4}-\d{2}-\d{2}$/.test(d.date));
+    pData.dates.sort((a,b)=>b.date.localeCompare(a.date));
+    if(activeDate&&/^\d{4}-\d{2}-\d{2}$/.test(activeDate))activeDate=activeDate+'__v1';
+    _savePgVersions();saveData();
+    console.log('migratePlainDateBuckets: '+moved+' purani date(s) v1 bucket mein migrate hui');
+  }catch(e){console.error('migratePlainDateBuckets:',e);}
+}
+
 function renderVersionPicker(){
   const sel=document.getElementById('pgVerSelect');
   const wrap=document.getElementById('pgVerWrap');
@@ -907,8 +963,15 @@ function renderVersionPicker(){
   const have=(pData.dates||[]).map(d=>_pgSplitKey(d.date)).filter(p=>p.date===cur.date).map(p=>p.ver);
   const known=(_pgVersions[cur.date]||[]).filter(v=>have.includes(v));
   const vers=[...new Set(known.length?known:have)].sort((a,b)=>a-b);
-  if(vers.length<2){wrap.style.display='none';sel.innerHTML='';return;}
+  // Ek hi upload ho tab bhi DIKHAO — taaki hamesha pata rahe ki kaunse upload
+  // ka data saamne hai. (Pehle 2+ hone par hi dikhta tha, isliye lagta tha ki
+  // option hai hi nahi.)
+  if(!vers.length){wrap.style.display='none';sel.innerHTML='';return;}
   wrap.style.display='';
+  const hint=document.getElementById('pgVerHint');
+  if(hint)hint.textContent = vers.length>1
+    ? 'Is date ke '+vers.length+' upload hain — chuno kis par kaam karna hai'
+    : 'Is date ka abhi sirf 1 upload aaya hai';
   sel.innerHTML=vers.map(v=>{
     const rows=getDateRows(_pgVerKey(cur.date,v));
     const sent=rows.filter(r=>r.sentStatus==='Sent').length;
