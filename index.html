@@ -759,6 +759,11 @@ function doLogin(){
 //  IDB is the persistent store. Auto-migrates old localStorage data.
 // ══════════════════════════════════════════
 const IDB_NAME='peshgar_db';
+// IDB connection + debounced-save timer.
+// (Ye dono ek galat block-delete mein ud gaye the — "_saveTimer is not defined"
+//  wali error isi wajah se aa rahi thi. Wapas declare kar diye.)
+let _idb=null;
+let _saveTimer=null;
 const IDB_STORE='kv';
 const IDB_DATA_KEY='pm_data';
 // ═══ MULTI-UPLOAD (VERSION) SUPPORT ═══
