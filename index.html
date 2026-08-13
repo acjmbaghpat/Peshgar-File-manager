@@ -2350,18 +2350,27 @@ function mergeFbData(date,fbRows,fbVer){
     // CFM ka EXACT pending/overdue flag — jo CFM ne calculate karke bheja (ditto same dikhana hai)
     const cfmPendingPrev=fr._pendingPrev||null;
     if(existing){
-      if(existing._cfmVer!==ver){existing._cfmVer=ver;changed=true;}   // is row ka upload-number
-      if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
-      // CFM ke raw fields store karo (har sync pe update)
-      existing._cfmSent=cfmSent;
-      existing._cfmSentdate=cfmSentdate;
-      existing._cfmReceived=cfmReceived;
-      existing._cfmReceiveddate=cfmReceiveddate;
-      existing._cfmDisposed=cfmDisposed;
-      // BUG-03 fix: agar pending/overdue flag badla to changed=true (warna reload pe badge gayab ho jata tha)
-      const _prevPP=JSON.stringify(existing._cfmPendingPrev||null);
-      existing._cfmPendingPrev=cfmPendingPrev; // CFM ka exact flag (ditto highlight)
-      if(JSON.stringify(cfmPendingPrev||null)!==_prevPP)changed=true;
+      // VERSION-ORDER GUARD (asli bug jo "CFM 89 par Peshgar 90" kar raha tha):
+      // Ek hi date ke kai upload-docs (2026-08-04_1, _2 ...) alag-alag snapshot
+      // mein aa sakte hain, aur Firestore inhe KISI BHI order mein bhej sakta hai.
+      // Pehle yahan har doc CFM-status ko seedha overwrite kar deta tha — isliye
+      // PURANA upload NAYE ke baad aakar "received nahi" wapas likh deta tha, aur
+      // wo file Peshgar mein overdue dikhti rehti thi jabki CFM mein received thi.
+      // Ab sirf BARABAR-YA-NAYA version hi CFM-status badal sakta hai.
+      const prevVer=(existing._cfmVer===undefined||existing._cfmVer===null)?0:existing._cfmVer;
+      const isNewer=(ver>=prevVer);
+      if(isNewer&&existing._cfmVer!==ver){existing._cfmVer=ver;changed=true;}
+      if(isNewer){
+        if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
+        existing._cfmSent=cfmSent;
+        existing._cfmSentdate=cfmSentdate;
+        existing._cfmReceived=cfmReceived;
+        existing._cfmReceiveddate=cfmReceiveddate;
+        existing._cfmDisposed=cfmDisposed;
+        const _prevPP=JSON.stringify(existing._cfmPendingPrev||null);
+        existing._cfmPendingPrev=cfmPendingPrev;
+        if(JSON.stringify(cfmPendingPrev||null)!==_prevPP)changed=true;
+      }
       // Also merge partyname/section/ps if blank
       if(!existing.partyname&&fr.partyname){existing.partyname=fr.partyname;changed=true;}
       if(!existing.section&&fr.section){existing.section=fr.section;changed=true;}
