@@ -1356,12 +1356,28 @@ function drawTable(){
 // Return: {cn: {sentDate, recvDate|null, rec, workDate, disposed}} — latest sent per case.
 function _pgSentRecvMap(allDates){
   const sends={},recvs={},disposedSet=new Set();
+  // DISPOSE — LIFECYCLE-AWARE (bilkul Court Manager jaisa).
+  // Case REVOKE ho sakta hai: CIS mein order ke baad wahi case dobara cause-list
+  // mein aa jaata hai. Pehle yahan "kabhi bhi disposed dikha to hamesha disposed"
+  // maana jaata tha — isliye revoke hone ke baad wo file Peshgar ke overdue se
+  // gayab ho jaati thi, jabki Court Manager use ginta rehta tha. Yahi dono ke
+  // overdue number alag hone ki ek badi wajah thi.
+  // Ab sirf SABSE NAYI date ka faisla maanya hai.
+  const _lastDisp={};   // caseno -> {date, disposed}
+  allDates.forEach(d=>{
+    (d.rows||[]).forEach(r=>{
+      const cn=String(r.caseno||'').trim().toUpperCase();
+      if(!cn)return;
+      const ex=_lastDisp[cn];
+      if(!ex||String(d.date)>=ex.date)_lastDisp[cn]={date:String(d.date),disposed:!!r._cfmDisposed};
+    });
+  });
+  for(const cn in _lastDisp)if(_lastDisp[cn].disposed)disposedSet.add(cn);
   allDates.forEach(d=>{
     const datePart=d.date; // working date
     (d.rows||[]).forEach(r=>{
       const cn=String(r.caseno||'').trim().toUpperCase();
       if(!cn)return;
-      if(r._cfmDisposed)disposedSet.add(cn);
       // Count WORKING-DATE se (file is din Peshgar gayi), sent-date advance ho sakti hai
       if(r._cfmSent)(sends[cn]=sends[cn]||[]).push({wdate:datePart,rec:r,workDate:datePart});
       if(r._cfmReceived)(recvs[cn]=recvs[cn]||[]).push(datePart);
@@ -2375,23 +2391,42 @@ function mergeFbData(date,fbRows,fbVer){
     // CFM ka EXACT pending/overdue flag — jo CFM ne calculate karke bheja (ditto same dikhana hai)
     const cfmPendingPrev=fr._pendingPrev||null;
     if(existing){
-      // VERSION-ORDER GUARD (asli bug jo "CFM 89 par Peshgar 90" kar raha tha):
-      // Ek hi date ke kai upload-docs (2026-08-04_1, _2 ...) alag-alag snapshot
-      // mein aa sakte hain, aur Firestore inhe KISI BHI order mein bhej sakta hai.
-      // Pehle yahan har doc CFM-status ko seedha overwrite kar deta tha — isliye
-      // PURANA upload NAYE ke baad aakar "received nahi" wapas likh deta tha, aur
-      // wo file Peshgar mein overdue dikhti rehti thi jabki CFM mein received thi.
-      // Ab sirf BARABAR-YA-NAYA version hi CFM-status badal sakta hai.
+      // ═══ VERSION MERGE — bilkul Court Manager jaisa ═══
+      // Ek hi date par kai upload (version) ho sakte hain: 2026-08-12_1, _2, _3.
+      //
+      // Court Manager overdue nikalte waqt SAARE versions ka UNION leta hai —
+      // yaani "agar kisi bhi version mein file sent hui, to sending hui hi hai".
+      // Peshgar pehle "sabse naya version jeetega" wala tarika use karta tha.
+      // Isi wajah se dono ke overdue number alag aate the: agar file upload-1
+      // mein sent hui aur upload-2 ki list se hat gayi, to CM use overdue ginta
+      // tha par Peshgar bilkul chhod deta tha (poori date hi gayab dikhti thi).
+      //
+      // Ab dono taraf ek hi niyam: SENT aur RECEIVED dono ka UNION.
+      // Isse wo purana bug bhi wapas nahi aata jismein PURANA upload NAYE ka
+      // "received" mita deta tha — kyunki ab hum overwrite karte hi nahi,
+      // sirf JODTE hain (true ho gaya to true hi rahega).
       const prevVer=(existing._cfmVer===undefined||existing._cfmVer===null)?0:existing._cfmVer;
-      const isNewer=(ver>=prevVer);
-      if(isNewer&&existing._cfmVer!==ver){existing._cfmVer=ver;changed=true;}
-      if(isNewer){
-        if(existing.sentStatus!==newSentStatus){existing.sentStatus=newSentStatus;changed=true;}
-        existing._cfmSent=cfmSent;
-        existing._cfmSentdate=cfmSentdate;
-        existing._cfmReceived=cfmReceived;
-        existing._cfmReceiveddate=cfmReceiveddate;
-        existing._cfmDisposed=cfmDisposed;
+      if(ver>=prevVer&&existing._cfmVer!==ver){existing._cfmVer=ver;changed=true;}
+
+      const wasSent=!!existing._cfmSent, wasRecv=!!existing._cfmReceived;
+      const nowSent=wasSent||cfmSent;
+      const nowRecv=wasRecv||cfmReceived;
+      if(nowSent!==wasSent){existing._cfmSent=nowSent;changed=true;}
+      if(nowRecv!==wasRecv){existing._cfmReceived=nowRecv;changed=true;}
+      existing._cfmSent=nowSent;existing._cfmReceived=nowRecv;
+
+      // Dates: jo bhi mile wahi rakho; naya version aaye to uski date prefer karo
+      if(cfmSentdate&&(!existing._cfmSentdate||ver>=prevVer))existing._cfmSentdate=cfmSentdate;
+      if(cfmReceiveddate&&(!existing._cfmReceiveddate||ver>=prevVer))existing._cfmReceiveddate=cfmReceiveddate;
+
+      // Dispose: lifecycle-aware — sirf sabse naye version ka faisla maanya
+      // (CIS mein revoke hone par file dobara zinda ho jaati hai)
+      if(ver>=prevVer&&existing._cfmDisposed!==cfmDisposed){existing._cfmDisposed=cfmDisposed;changed=true;}
+
+      const newStatus=nowSent?'Sent':'';
+      if(existing.sentStatus!==newStatus){existing.sentStatus=newStatus;changed=true;}
+
+      if(ver>=prevVer){
         const _prevPP=JSON.stringify(existing._cfmPendingPrev||null);
         existing._cfmPendingPrev=cfmPendingPrev;
         if(JSON.stringify(cfmPendingPrev||null)!==_prevPP)changed=true;
