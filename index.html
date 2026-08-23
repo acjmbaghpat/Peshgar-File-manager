@@ -741,6 +741,13 @@ function doLogin(){
     // pData load karo (IndexedDB se) Firebase connect SE PEHLE — taaki merge/push race na ho
     requestPersistentStorage();
     loadData().then(()=>{
+      // App band hone se pehle jo push baaki tha, use ab pura karo
+      try{
+        if(_pgPendingDates.size){
+          console.log('pgQueue: '+_pgPendingDates.size+' date(s) pichli baar se pending — push kar rahe hain');
+          setTimeout(()=>{try{flushPgPush();}catch(e){}},2500);
+        }
+      }catch(e){}
       try{repairVersionBuckets();}catch(e){}
       try{_pgVerFilter=localStorage.getItem('pg_ver_filter')||'all';if(_pgVerFilter!=='all')_pgVerFilter=parseInt(_pgVerFilter,10)||'all';}catch(e){}
       try{renderVersionPicker();}catch(e){}
@@ -1009,9 +1016,27 @@ function setDateRows(date,rows){
 
 // Peshgar status push — debounced, CM isko padhke mismatch dikhata hai
 let _pgPushTimer=null;
-let _pgPendingDates=new Set(); // offline mein jo dates push hone hain
+// Offline/fail hone par jo dates push hone baaki hain.
+// PEHLE ye sirf memory mein tha — app band karte hi push-signal kho jaata tha.
+// Data to IDB mein bacha rehta tha, par use Firebase par chadhane wala koi nahi
+// bachta tha; natija ye ki Court Manager ko wo kaam kabhi pata hi nahi chalta
+// aur Peshgar-Miss mein hamesha ke liye galat mismatch dikhta rehta.
+// Ab queue localStorage mein bhi rakhi jaati hai aur app khulte hi wapas load
+// hokar apne aap push ho jaati hai.
+const PG_PENDING_KEY='pg_pending_dates';
+let _pgPendingDates=(()=>{
+  try{const a=JSON.parse(localStorage.getItem(PG_PENDING_KEY)||'[]');
+    // Sirf sach-much valid dates rakho (2026-13-99 jaisi kachra entry hamesha
+    // ke liye queue mein atki reh jaati aur har baar fail hoti).
+    const ok=x=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(x))return false;const d=new Date(x+'T00:00:00');return !isNaN(d.getTime())&&_localISO(d)===x;};
+    return new Set(Array.isArray(a)?a.filter(ok):[]);
+  }catch(e){return new Set();}
+})();
+function _savePgQueue(){
+  try{localStorage.setItem(PG_PENDING_KEY,JSON.stringify([..._pgPendingDates]));}catch(e){}
+}
 function pgSchedulePush(date){
-  _pgPendingDates.add(date); // hamesha queue mein daalo
+  _pgPendingDates.add(date);_savePgQueue(); // hamesha queue mein daalo (aur yaad rakho)
   clearTimeout(_pgPushTimer);
   _pgPushTimer=setTimeout(()=>flushPgPush(),1500);
 }
@@ -1068,7 +1093,7 @@ async function flushPgPush(){
       const merged=await pgMergeWithRemote(date,slim);
       if(merged===null)continue;                 // remote read fail — retry queue mein rehne do
       await _fbDb.collection('peshgar').doc(date).set(pgToFirebase(merged));
-      _pgPendingDates.delete(date); // successfully pushed
+      _pgPendingDates.delete(date);_savePgQueue(); // successfully pushed
     }catch(e){console.warn('pgPush retry pending:',e);}
   }
 }
@@ -1104,7 +1129,7 @@ function startPeriodicSync(){
   _pgPeriodicSync=setInterval(()=>{
     if(_fbDb&&navigator.onLine&&activeDate){
       // Current date ko queue mein daalo aur push karo
-      _pgPendingDates.add(activeDate);
+      _pgPendingDates.add(activeDate);_savePgQueue();
       flushPgPush();
     }
   },30000); // 30 seconds
