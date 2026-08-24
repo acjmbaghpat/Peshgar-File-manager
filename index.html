@@ -749,7 +749,11 @@ function doLogin(){
         }
       }catch(e){}
       try{repairVersionBuckets();}catch(e){}
-      try{_pgVerFilter=localStorage.getItem('pg_ver_filter')||'all';if(_pgVerFilter!=='all')_pgVerFilter=parseInt(_pgVerFilter,10)||'all';}catch(e){}
+      try{const sv=localStorage.getItem('pg_ver_filter');
+        if(sv==='all'||sv==='latest')_pgVerFilter=sv;
+        else if(sv)_pgVerFilter=parseInt(sv,10)||'latest';
+        else _pgVerFilter='latest';
+      }catch(e){_pgVerFilter='latest';}
       try{renderVersionPicker();}catch(e){}
       tryAutoConnectFB();
     });
@@ -950,7 +954,13 @@ function repairVersionBuckets(){
 // ═══ UPLOAD (VERSION) PICKER — sirf DIKHANE ka filter ═══
 // Storage bilkul nahi badalta — sab kuch plain date par hi rehta hai. Ye sirf
 // tay karta hai ki table mein kis upload ki files dikhein. "Sabhi" default hai.
-let _pgVerFilter='all';   // 'all' ya version-number
+// Kaunsa upload dikhana hai. DEFAULT ab "sabse naya upload" hai, "Sabhi" nahi —
+// bilkul Court Manager jaisa, jo ek waqt mein ek hi upload dikhata hai.
+// Wajah: agar upload-1 galti se hua ho (2 files) aur upload-2 asli list ho
+// (165 files), to "Sabhi" 167 dikhata tha aur galat upload ki files bhi mil
+// jaati thi. Ab default sahi wali list hai; "Sabhi uploads" option abhi bhi
+// maujood hai agar kabhi poora milaan karna ho.
+let _pgVerFilter='latest';   // 'latest' | 'all' | version-number
 function pgVersionsForDate(date){
   const vs=new Set();
   getDateRows(date).forEach(r=>{ if(r._cfmVer!==undefined&&r._cfmVer!==null)vs.add(r._cfmVer); });
@@ -967,18 +977,22 @@ function renderVersionPicker(){
   wrap.style.display='';
   const hint=document.getElementById('pgVerHint');
   if(hint)hint.textContent = vers.length>1
-    ? 'Is date ke '+vers.length+' upload aaye hain — chuno kaunsa dekhna hai'
+    ? 'Is date ke '+vers.length+' upload aaye hain — sabse naya dikh raha hai'
     : (vers.length===1?'Is date ka Upload '+vers[0]+' aaya hai':'Upload info abhi nahi aayi');
-  let h='<option value="all"'+(_pgVerFilter==='all'?' selected':'')+'>Sabhi uploads — '+rows.length+' files</option>';
+  const latest=vers.length?vers[vers.length-1]:null;
+  const isLatest=(v)=>_pgVerFilter==='latest'&&v===latest;
+  let h='';
   vers.forEach(v=>{
     const n=rows.filter(r=>r._cfmVer===v).length;
     const sent=rows.filter(r=>r._cfmVer===v&&r.sentStatus==='Sent').length;
-    h+='<option value="'+v+'"'+(String(_pgVerFilter)===String(v)?' selected':'')+'>Upload '+v+' — '+n+' files, '+sent+' sent</option>';
+    const sel=(String(_pgVerFilter)===String(v)||isLatest(v))?' selected':'';
+    h+='<option value="'+v+'"'+sel+'>Upload '+v+(v===latest?' (naya)':'')+' — '+n+' files, '+sent+' sent</option>';
   });
+  h+='<option value="all"'+(_pgVerFilter==='all'?' selected':'')+'>Sabhi uploads — '+rows.length+' files</option>';
   sel.innerHTML=h;
 }
 function switchVersion(v){
-  _pgVerFilter=(v==='all')?'all':(parseInt(v,10)||'all');
+  _pgVerFilter=(v==='all')?'all':((v==='latest')?'latest':(parseInt(v,10)||'latest'));
   try{localStorage.setItem('pg_ver_filter',String(_pgVerFilter));}catch(e){}
   drawTable();updateDash();renderVersionPicker();
   showToast(v==='all'?'📄 Sabhi uploads dikha rahe hain':'📄 Upload '+v+' dikha rahe hain');
@@ -987,7 +1001,13 @@ function switchVersion(v){
 function pgVisibleRows(date){
   const rows=getDateRows(date);
   if(_pgVerFilter==='all')return rows;
-  const f=rows.filter(r=>String(r._cfmVer)===String(_pgVerFilter));
+  let want=_pgVerFilter;
+  if(want==='latest'){
+    const vs=pgVersionsForDate(date);
+    if(!vs.length)return rows;
+    want=vs[vs.length-1];      // sabse naya upload
+  }
+  const f=rows.filter(r=>String(r._cfmVer)===String(want));
   return f.length?f:rows;   // filter se sab gayab ho jaye to sab dikha do
 }
 function selectDate(date){
@@ -2237,9 +2257,22 @@ function fbStartListen(){
       fbMsg('🔴 Court Manager ka data padha nahi ja raha ('+_unparsedDocs+' records) — ye app PURANI hai. Nayi Peshgar app file deploy karo, tab tak sent/received khaali dikhega (data delete nahi hua).','s-err');
       showToast('🔴 App update karo — CM ka naya data padha nahi ja raha','d');
     }
-    if(snap.size===0){
-      fbMsg('⚠️ Firebase connected par "cfm" collection KHALI hai. Court Manager mein "Sabhi Data Push Karo" dabao.','s-warn');
-    }
+    // "cfm KHALI hai" — ye message SIRF tab dikhna chahiye jab SERVER se pakka
+    // khali jawab aaye. Firestore ka pehla snapshot aksar LOCAL CACHE se aata hai
+    // (metadata.fromCache=true) aur wo khali ho sakta hai — us par warning dena
+    // galat hai, kyunki server se data aa hi raha hota hai. Isi wajah se "Sync Now"
+    // dabate hi jhoothi warning aa jaati thi jabki data theek tha.
+    // Doosri suraksha: agar is app ke paas pehle se local data hai, to bhi hum
+    // warning nahi dete — kyunki tab "khali" hona sirf padhne ki dikkat hai.
+    try{
+      const fromCache=!!(snap.metadata&&snap.metadata.fromCache);
+      const haveLocal=!!(pData&&Array.isArray(pData.dates)&&pData.dates.length);
+      if(snap.size===0&&!fromCache&&!haveLocal){
+        fbMsg('⚠️ Firebase connected par "cfm" collection KHALI hai. Court Manager mein "Sabhi Data Push Karo" dabao.','s-warn');
+      }else if(snap.size===0&&!fromCache&&haveLocal){
+        fbMsg('⚠️ Firebase se abhi koi CFM data nahi mila — purana data dikhaya ja raha hai. Court Manager mein "Sabhi Data Push Karo" dabao.','s-warn');
+      }
+    }catch(e){}
   },err=>{
     setSyncDot('err');
     fbMsg('❌ Firebase read error: '+err.message+' — Project ID ya Firestore rules check karo','s-err');
