@@ -131,7 +131,11 @@ button{cursor:pointer}
 /* ══ TABLE ══ */
 .twrap{background:var(--sur);border-radius:var(--r16);overflow:hidden;box-shadow:var(--sh1);border:1px solid rgba(221,229,244,.6);margin-bottom:12px}
 .twrap-scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;min-width:600px}
+table{width:100%;border-collapse:collapse;min-width:640px}
+/* Ab Status DO column mein hai (Received | Sent). Dono ko patla rakho taaki
+   7 column ke baad bhi table zyada chaudi na ho aur badge todein nahi. */
+th:nth-child(6),th:nth-child(7),td:nth-child(6),td:nth-child(7){padding-left:6px;padding-right:6px;white-space:nowrap;text-align:center}
+th:nth-child(1),td:nth-child(1){padding-left:10px;padding-right:4px}
 th{background:#f0f3f9;padding:9px 12px;font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;text-align:left;position:sticky;top:0;z-index:10;border-bottom:1.5px solid var(--bdr)}
 td{padding:9px 12px;font-size:13px;border-bottom:1px solid #f0f3f9;color:var(--txt);font-weight:500}
 tr:last-child td{border-bottom:none}
@@ -468,10 +472,11 @@ button:active{transform:scale(.97)}
             <th>Party</th>
             <th>U/S</th>
             <th>PS</th>
-            <th>Status</th>
+            <th>Received</th>
+            <th>Sent</th>
           </tr></thead>
           <tbody id="fileTable">
-            <tr><td colspan="6" class="empty-state" style="padding:40px;text-align:center;color:var(--mu)">Koi date select nahi ki ya data nahi hai</td></tr>
+            <tr><td colspan="7" class="empty-state" style="padding:40px;text-align:center;color:var(--mu)">Koi date select nahi ki ya data nahi hai</td></tr>
           </tbody>
         </table>
       </div>
@@ -1334,7 +1339,7 @@ function drawTable(){
   const tb=document.getElementById('fileTable');
   const rows=getFilteredRows();
   if(!rows.length){
-    tb.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--mu);font-size:13px;font-weight:500">${activeDate?'Koi file nahi mili':'Pehle date select karo'}</td></tr>`;
+    tb.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--mu);font-size:13px;font-weight:500">${activeDate?'Koi file nahi mili':'Pehle date select karo'}</td></tr>`;
     return;
   }
   // CFM jaisा pending/overdue map — saari dates se (sent-but-not-received)
@@ -1346,13 +1351,25 @@ function drawTable(){
     // Pending/overdue — CFM jaisा calc se (Peshgar mein received ho to suppress)
     const cn=String(r.caseno||'').trim().toUpperCase();
     const pp=(r.received==='Received')?null:(pendMap[cn]||null);
-    let statusBadge='';
-    if(r.sentToOffice==='Sent')statusBadge='<span class="badge b-sent">✓ Sent</span>';
-    else if(isJudge)statusBadge='<span class="badge b-judge">⚖️ Judge</span>';
-    else if(isSteno)statusBadge='<span class="badge b-steno">🖊️ Steno</span>';
-    else if(r.received==='Received')statusBadge='<span class="badge b-rcv">✓ Rcvd</span>';
-    else if(isMiss)statusBadge='<span class="badge b-miss">⚠ Miss</span>';
-    else statusBadge='<span class="badge" style="background:#f0f3f9;color:var(--mu)">Pending</span>';
+    // ═══ DO ALAG COLUMN — bilkul Excel jaisa ═══
+    // Pehle ek hi "Status" column tha aur badge if/else se ek hi dikhta tha:
+    // file office bhejte hi "✓ Rcvd" GAYAB ho jaata tha aur sirf "✓ Sent" bachta
+    // tha — dekhne se lagta ki file kabhi receive hi nahi hui. Excel download
+    // mein dono alag column hain (Received / Sent to Office), isliye screen par
+    // bhi wahi hona chahiye. Ab: pehla column RECEIVED, doosra SENT.
+    let rcvBadge='',sentBadge='';
+    if(r.received==='Received'){
+      rcvBadge='<span class="badge b-rcv">✓ Rcvd</span>';
+    }else if(isMiss){
+      rcvBadge='<span class="badge b-miss">⚠ Miss</span>';
+    }else{
+      rcvBadge='<span class="badge" style="background:#f0f3f9;color:var(--mu)">Pending</span>';
+    }
+    // Doosra column: file ab kahan hai — office bheji, ya steno/judge ke paas
+    if(r.sentToOffice==='Sent')sentBadge='<span class="badge b-sent">✓ Sent</span>';
+    else if(isJudge)sentBadge='<span class="badge b-judge">⚖️ Judge</span>';
+    else if(isSteno)sentBadge='<span class="badge b-steno">🖊️ Steno</span>';
+    else sentBadge='<span style="color:var(--mu);font-size:11px">—</span>';
     // Pending-from-previous badge (CFM jaisa)
     const ppBadge=pp?(pp.overdue
       ?'<span style="display:inline-block;background:#dc2626;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date se '+pp.daysDiff+' din pending — OVERDUE">⚠ '+pp.daysDiff+'d OVERDUE</span>'
@@ -1366,7 +1383,8 @@ function drawTable(){
       <td><span class="td-party">${esc(r.partyname||'')}</span></td>
       <td><span class="td-meta">${esc(r.section||'')}</span></td>
       <td><span class="td-meta">${esc(r.ps||'')}</span></td>
-      <td>${statusBadge}</td>
+      <td>${rcvBadge}</td>
+      <td>${sentBadge}</td>
     </tr>`;
   }).join('');
 }
@@ -1778,8 +1796,8 @@ function mrSelectExisting(cn){
   if(!pgOnlineGuard('Manual receive'))return;
   const rows=getDateRows(activeDate);
   const idx=rows.findIndex(r=>pgMatchCase(r.caseno,cn));
-  if(idx===-1){showToast('⚠️ File nahi mili','w');return;}
-  if(rows[idx].received==='Received'){showToast('ℹ️ Pehle se received hai','w');return;}
+  if(idx===-1){showToast('⚠️ File nahi mili','w');pgSpeak('Not found');return;}
+  if(rows[idx].received==='Received'){showToast('ℹ️ Pehle se received hai','w');pgSpeak('Already received');return;}
   const today=_localISO(new Date());
   rows[idx].received='Received';
   rows[idx].receiveddate=today;
@@ -1938,6 +1956,7 @@ function handleScanResult(dec){
 
   if(idx===-1){
     showSC('❌ '+cn+' — is date mein nahi mila','#dc2626');
+    pgSpeak('Not found');            // pehle sirf screen par dikhta tha, bolta nahi tha
     if(navigator.vibrate)navigator.vibrate([100,50,100]);
     return;
   }
